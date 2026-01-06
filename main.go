@@ -15,64 +15,111 @@ var upgrader = websocket.Upgrader{
 }
 
 type Client struct {
-	conn *websocket.Conn
-	send chan []byte
+	conn   *websocket.Conn
+	send   chan []byte
+	roomId string
+}
+
+type Room struct {
+	id        string
+	clients   map[*Client]bool
+	broadcast chan []byte
+	mu        sync.Mutex
 }
 
 var (
-	clients   = make(map[*Client]bool)
-	broadcast = make(chan []byte)
-	mu        sync.Mutex
+	rooms   = make(map[string]*Room)
+	roomsMu sync.Mutex
 )
 
 func main() {
-	http.HandleFunc("/ws", handlews)
-
-	go boardcaster()
+	http.HandleFunc("/ws", handleWS)
 
 	log.Println("WS server running on :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func handlews(w http.ResponseWriter, r *http.Request) {
+func handleWS(w http.ResponseWriter, r *http.Request) {
+	roomId := r.URL.Query().Get("roomId")
+	if roomId == "" {
+		http.Error(w, "roomId , require", http.StatusBadRequest)
+		return
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println("upgrade err : ", err)
+		log.Println("[ws] upgrade err :")
+		return
 	}
+
+	room := getOrCreateRoom(roomId)
 
 	client := &Client{
-		conn: conn,
-		send: make(chan []byte, 256),
+		conn:   conn,
+		send:   make(chan []byte),
+		roomId: roomId,
 	}
 
-	mu.Lock()
-	clients[client] = true
-	mu.Unlock()
+	room.mu.Lock()
+	room.clients[client] = true
+	room.mu.Unlock()
 
-	log.Println("client created")
+	log.Println("client joined room:", roomId)
 
 	go client.write()
-	client.read()
-
+	client.read(room)
 }
 
-func (client *Client) read() {
+func getOrCreateRoom(roomId string) *Room {
+	roomsMu.Lock()
+	defer roomsMu.Unlock()
+
+	room, ok := rooms[roomId]
+	if !ok {
+		room = &Room{
+			id:        roomId,
+			clients:   make(map[*Client]bool),
+			broadcast: make(chan []byte, 256),
+		}
+		rooms[roomId] = room
+		go room.run()
+	}
+
+	return room
+}
+
+func (room *Room) run() {
+	for msg := range room.broadcast {
+		room.mu.Lock()
+		for client := range room.clients {
+			select {
+			case client.send <- msg:
+			default:
+				delete(room.clients, client)
+				close(client.send)
+			}
+		}
+		room.mu.Unlock()
+	}
+}
+
+func (client *Client) read(room *Room) {
 	defer func() {
-		mu.Lock()
-		delete(clients, client)
-		mu.Unlock()
+		room.mu.Lock()
+		delete(room.clients, client)
+		room.mu.Unlock()
+
 		client.conn.Close()
-		log.Println("Connection Close")
+		log.Println("client left room:", client.roomId)
 	}()
 
 	for {
 		_, msg, err := client.conn.ReadMessage()
 		if err != nil {
-			//connection is dead just stop
 			break
 		}
 
-		broadcast <- msg
+		room.broadcast <- msg
 	}
 }
 
@@ -81,20 +128,5 @@ func (client *Client) write() {
 		if err := client.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 			return
 		}
-	}
-}
-
-func boardcaster() {
-	for msg := range broadcast {
-		mu.Lock()
-		for client := range clients {
-			select {
-			case client.send <- msg:
-			default:
-				delete(clients, client)
-				close(client.send)
-			}
-		}
-		mu.Unlock()
 	}
 }
