@@ -1,15 +1,50 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"os"
 
+	"github.com/Tk21111/whiteboard_server/api"
+	"github.com/Tk21111/whiteboard_server/middleware"
 	"github.com/Tk21111/whiteboard_server/ws"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/joho/godotenv"
 )
 
 func main() {
-	http.HandleFunc("/ws", ws.HandleWS)
 
+	err := godotenv.Load(".env")
+	if err != nil {
+		log.Fatal("Error loading .env file")
+		return
+	}
+
+	cfg, err := config.LoadDefaultConfig(context.TODO(),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(
+				os.Getenv("R2_KEY"),
+				os.Getenv("R2_SECRET"),
+				"",
+			),
+		),
+		config.WithRegion("auto"),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String(os.Getenv("R2_ENDPOINT"))
+	})
+
+	presignClient := s3.NewPresignClient(client)
+	http.HandleFunc("/ws", ws.HandleWS)
+	http.Handle("/upload", middleware.AuthMiddleware(api.UploadHandler(presignClient)))
 	log.Println("WS running :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
