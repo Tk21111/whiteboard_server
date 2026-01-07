@@ -44,7 +44,23 @@ func main() {
 
 	presignClient := s3.NewPresignClient(client)
 	http.HandleFunc("/ws", ws.HandleWS)
-	http.Handle("/upload", middleware.AuthMiddleware(api.UploadHandler(presignClient)))
+
+	uploadHandler :=
+		middleware.CORSMiddleware(
+			middleware.AuthMiddleware(
+				api.UploadHandler(presignClient),
+			),
+		)
+	http.Handle("/upload", uploadHandler)
+
+	getHandler :=
+		middleware.CORSMiddleware(
+			middleware.AuthMiddleware(
+				api.GetObject(presignClient),
+			),
+		)
+	http.Handle("/get", getHandler)
+
 	log.Println("WS running :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }

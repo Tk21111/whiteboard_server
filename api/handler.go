@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/Tk21111/whiteboard_server/auth"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
@@ -15,11 +17,16 @@ type SignRequest struct {
 	Size     int64  `json:"size"`
 	RoomId   string `json:"roomId"`
 	MimeType string `json:"mimeType"`
-	Name     string `json:"name"`
 }
 
 func UploadHandler(client *s3.PresignClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+
+		userId := auth.RequireUserId(r)
+		if userId == "" {
+			http.Error(w, "no userid", http.StatusForbidden)
+			return
+		}
 
 		if r.Method != http.MethodPost {
 			http.Error(w, "Use POST", http.StatusMethodNotAllowed)
@@ -32,15 +39,24 @@ func UploadHandler(client *s3.PresignClient) http.HandlerFunc {
 			return
 		}
 
-		const maxLimit = 10 * 1024 * 1024
-		if req.Size > maxLimit {
-			http.Error(w, "file excess max size", http.StatusForbidden)
+		if strings.HasPrefix(req.MimeType, "image/") {
+			if req.Size > 10*1024*1024 {
+				http.Error(w, "image too large", http.StatusForbidden)
+				return
+			}
 		}
 
-		objectKey := fmt.Sprintf("rooms/%s/%s", req.RoomId, req.Name)
+		if strings.HasPrefix(req.MimeType, "video/") {
+			if req.Size > 200*1024*1024 {
+				http.Error(w, "video too large", http.StatusForbidden)
+				return
+			}
+		}
+
+		objectKey := fmt.Sprintf("rooms/%s/%s-%d", req.RoomId, userId, time.Now().UnixNano())
 
 		presignedReq, err := client.PresignPutObject(r.Context(), &s3.PutObjectInput{
-			Bucket:      aws.String(os.Getenv("whiteboard-media")),
+			Bucket:      aws.String(os.Getenv("R2_BUCKET")),
 			Key:         aws.String(objectKey),
 			ContentType: aws.String(req.MimeType),
 		}, func(po *s3.PresignOptions) {
@@ -60,19 +76,13 @@ func UploadHandler(client *s3.PresignClient) http.HandlerFunc {
 	}
 }
 
-func getObject(client *s3.PresignClient) http.HandlerFunc {
+func GetObject(client *s3.PresignClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
 		objectKey := r.URL.Query().Get("key")
 		if objectKey == "" {
 			http.Error(w, "key require", http.StatusBadRequest)
 		}
-
-		//TODO - implement this
-		// if !userHasAccessToKey(r, objectKey) {
-		// 	http.Error(w, "Unauthorized", http.StatusForbidden)
-		// 	return
-		// }
 
 		presignedReq, err := client.PresignGetObject(r.Context(), &s3.GetObjectInput{
 			Bucket: aws.String(os.Getenv("R2_BUCKET")),
