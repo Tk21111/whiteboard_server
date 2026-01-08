@@ -96,7 +96,6 @@ func GetObject(client *s3.PresignClient) http.HandlerFunc {
 			return
 		}
 
-		// 4. Return the URL
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{
 			"download_url": presignedReq.URL,

@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/Tk21111/whiteboard_server/api"
+	"github.com/Tk21111/whiteboard_server/auth"
 	"github.com/Tk21111/whiteboard_server/middleware"
 	"github.com/Tk21111/whiteboard_server/ws"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -45,6 +46,9 @@ func main() {
 	presignClient := s3.NewPresignClient(client)
 	http.HandleFunc("/ws", ws.HandleWS)
 
+	cookieHandler := middleware.CORSMiddleware(auth.HandleAuthAsset())
+	http.Handle("/cookie", cookieHandler)
+
 	uploadHandler :=
 		middleware.CORSMiddleware(
 			middleware.AuthMiddleware(
@@ -55,7 +59,7 @@ func main() {
 
 	getHandler :=
 		middleware.CORSMiddleware(
-			middleware.AuthMiddleware(
+			middleware.RequireSession(
 				api.GetObject(presignClient),
 			),
 		)
