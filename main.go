@@ -8,6 +8,7 @@ import (
 
 	"github.com/Tk21111/whiteboard_server/api"
 	"github.com/Tk21111/whiteboard_server/auth"
+	"github.com/Tk21111/whiteboard_server/db"
 	"github.com/Tk21111/whiteboard_server/middleware"
 	"github.com/Tk21111/whiteboard_server/ws"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -39,6 +40,9 @@ func main() {
 		panic(err)
 	}
 
+	db.NewWriter("./db/sql/events.db")
+	go ws.DecodeLoop()
+
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(os.Getenv("R2_ENDPOINT"))
 	})
@@ -48,6 +52,9 @@ func main() {
 
 	cookieHandler := middleware.CORSMiddleware(auth.HandleAuthAsset())
 	http.Handle("/cookie", cookieHandler)
+
+	replayHandler := middleware.CORSMiddleware(api.GetReplay())
+	http.Handle("/get-replay", replayHandler)
 
 	uploadHandler :=
 		middleware.CORSMiddleware(

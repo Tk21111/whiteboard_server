@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Tk21111/whiteboard_server/auth"
+	"github.com/Tk21111/whiteboard_server/db"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
@@ -100,5 +101,30 @@ func GetObject(client *s3.PresignClient) http.HandlerFunc {
 		json.NewEncoder(w).Encode(map[string]string{
 			"download_url": presignedReq.URL,
 		})
+	}
+}
+
+func GetReplay() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+
+		roomId := r.URL.Query().Get("roomId")
+		replayFrom := r.URL.Query().Get("from")
+		if roomId == "" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		if replayFrom == "" {
+			replayFrom = "0"
+		}
+
+		event, err := db.GetEvent(roomId, replayFrom)
+		if err != nil {
+			http.Error(w, "fail to get replay", 500)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(event)
 	}
 }

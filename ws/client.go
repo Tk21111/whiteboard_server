@@ -1,6 +1,9 @@
 package ws
 
-import "github.com/gorilla/websocket"
+import (
+	"github.com/Tk21111/whiteboard_server/config"
+	"github.com/gorilla/websocket"
+)
 
 type Client struct {
 	conn   *websocket.Conn
@@ -20,7 +23,16 @@ func (c *Client) read() {
 		if err != nil {
 			break
 		}
+		Ch <- config.RawEvent{
+			Msg: msg,
+			Meta: &config.EventMeta{
+				ID:     0,
+				RoomID: c.roomId,
+				UserID: c.userId,
+			},
+		}
 		H.Broadcast(c.roomId, msg, c)
+
 	}
 }
 
