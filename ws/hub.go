@@ -90,80 +90,96 @@ type StrokeBuffer struct {
 }
 
 var (
-	Ch           = make(chan config.RawEvent, 4095)
+	// Ch           = make(chan config.RawEvent, 4095)
 	strokeBuffer = StrokeBuffer{
 		buffer: make(map[string]*buffer),
 	}
 )
 
-func DecodeLoop() {
-	for event := range Ch {
-		msgs, err := middleware.DecodeNetworkMsg(event.Msg)
-		if err != nil {
-			continue
-		}
-		for _, m := range msgs {
-
-			switch m.Operation {
-
-			case "stroke-start":
-				event.Meta.ID = NextClock(event.Meta.RoomID)
-				func() {
-					strokeBuffer.mu.Lock()
-					defer strokeBuffer.mu.Unlock()
-
-					strokeBuffer.buffer[m.ID] = &buffer{
-						stroke: m.Stroke,
-						meta:   event.Meta,
-					}
-				}()
-
-			case "stroke-update":
-				func() {
-					strokeBuffer.mu.Lock()
-					defer strokeBuffer.mu.Unlock()
-
-					buffer, ok := strokeBuffer.buffer[m.ID]
-					if !ok {
-						return
-					}
-
-					buffer.stroke.Points = append(buffer.stroke.Points, m.Points...)
-				}()
-
-			case "stroke-end":
-				func() {
-					strokeBuffer.mu.Lock()
-					defer strokeBuffer.mu.Unlock()
-
-					b, ok := strokeBuffer.buffer[m.ID]
-					if !ok {
-						return
-					}
-
-					delete(strokeBuffer.buffer, m.ID)
-
-					// flush buffered stroke as event
-					db.WriteEvent(config.Event{
-						EventMeta: *b.meta,
-						Op:        "stroke",
-						Payload:   middleware.EncodeNetworkMsg(b.stroke),
-						CreatedAt: time.Now().UnixMilli(),
-					})
-				}()
-			case "stroke-add":
-				return
-			default:
-
-				event.Meta.ID = NextClock(event.Meta.RoomID)
-				db.WriteEvent(config.Event{
-					EventMeta: *event.Meta,
-					Op:        m.Operation,
-					Payload:   middleware.EncodeNetworkMsg(m),
-					CreatedAt: time.Now().UnixMilli(),
-				})
-			}
-		}
+func (c *Client) handleMsg(m config.NetworkMsg) config.ServerMsg {
+	meta := &config.EventMeta{
+		ID:     0, // assigned per event
+		RoomID: c.roomId,
+		UserID: c.userId,
 	}
 
+	switch m.Operation {
+
+	case "stroke-start":
+		meta.ID = NextClock(meta.RoomID)
+
+		strokeBuffer.mu.Lock()
+		strokeBuffer.buffer[m.ID] = &buffer{
+			stroke: m.Stroke,
+			meta:   meta,
+		}
+		strokeBuffer.mu.Unlock()
+
+		return config.ServerMsg{
+			Clock:   meta.ID,
+			Payload: m,
+		}
+
+	case "stroke-update":
+		strokeBuffer.mu.Lock()
+		b, ok := strokeBuffer.buffer[m.ID]
+		if ok {
+			b.stroke.Points = append(b.stroke.Points, m.Points...)
+		}
+		strokeBuffer.mu.Unlock()
+
+		return config.ServerMsg{
+			Clock:   0,
+			Payload: m,
+		}
+
+	case "stroke-end":
+		strokeBuffer.mu.Lock()
+		b, ok := strokeBuffer.buffer[m.ID]
+		if !ok {
+			strokeBuffer.mu.Unlock()
+			return config.ServerMsg{
+				Clock:   0,
+				Payload: m,
+			}
+		}
+		delete(strokeBuffer.buffer, m.ID)
+		strokeBuffer.mu.Unlock()
+
+		// flush buffered stroke
+		// fmt.Printf("%#v\n", b.stroke)
+
+		db.WriteEvent(config.Event{
+			EventMeta: *b.meta,
+			Op:        "stroke-add",
+			Payload:   middleware.EncodeNetworkMsg(b.stroke),
+			CreatedAt: time.Now().UnixMilli(),
+		})
+
+		return config.ServerMsg{
+			Clock:   0,
+			Payload: m,
+		}
+
+	case "stroke-add":
+		return config.ServerMsg{
+			Clock:   0,
+			Payload: m,
+		}
+
+	default:
+		meta.ID = NextClock(meta.RoomID)
+
+		db.WriteEvent(config.Event{
+			EventMeta: *meta,
+			Op:        m.Operation,
+			Payload:   middleware.EncodeNetworkMsg(m),
+			CreatedAt: time.Now().UnixMilli(),
+		})
+
+		return config.ServerMsg{
+			Clock:   meta.ID,
+			Payload: m,
+		}
+	}
 }

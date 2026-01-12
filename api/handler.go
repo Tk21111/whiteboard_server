@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Tk21111/whiteboard_server/auth"
+	"github.com/Tk21111/whiteboard_server/config"
 	"github.com/Tk21111/whiteboard_server/db"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -107,24 +108,55 @@ func GetObject(client *s3.PresignClient) http.HandlerFunc {
 func GetReplay() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
-		roomId := r.URL.Query().Get("roomId")
-		replayFrom := r.URL.Query().Get("from")
-		if roomId == "" {
-			http.Error(w, "bad request", http.StatusBadRequest)
+		roomID := r.URL.Query().Get("roomId")
+		from := r.URL.Query().Get("from")
+
+		if roomID == "" {
+			http.Error(w, "roomId required", http.StatusBadRequest)
 			return
 		}
 
-		if replayFrom == "" {
-			replayFrom = "0"
+		if from == "" {
+			from = "0"
 		}
 
-		event, err := db.GetEvent(roomId, replayFrom)
+		events, err := db.GetEvent(roomID, from)
 		if err != nil {
-			http.Error(w, "fail to get replay", 500)
+			http.Error(w, "fail to get replay", http.StatusInternalServerError)
 			return
+		}
+
+		replay := make([]config.ServerMsg, 0, len(events))
+
+		for _, e := range events {
+
+			var payload config.NetworkMsg = config.NetworkMsg{
+				ID:        e.EntityID,
+				Operation: e.Op,
+			}
+
+			switch e.Op {
+
+			case "stroke-add":
+				var decoded config.StrokeObjectInterface
+				if err := json.Unmarshal(e.Payload, &decoded); err != nil {
+					continue
+				}
+				payload.Stroke = &decoded
+			}
+			//TODO-12
+			// case "dom-transform":
+			// case "dom-add":
+
+			replay = append(replay, config.ServerMsg{
+				Clock:   e.ID,
+				Payload: payload,
+			})
+
+			// fmt.Println("%#v\n", replay)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(event)
+		_ = json.NewEncoder(w).Encode(replay)
 	}
 }

@@ -1,6 +1,6 @@
 package config
 
-type RawEvent struct {
-	Meta *EventMeta
-	Msg  []byte
+type ServerMsg struct {
+	Clock   int64      `json:"clock"`
+	Payload NetworkMsg `json:"payload"`
 }

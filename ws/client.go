@@ -1,7 +1,10 @@
 package ws
 
 import (
+	"encoding/json"
+
 	"github.com/Tk21111/whiteboard_server/config"
+	"github.com/Tk21111/whiteboard_server/middleware"
 	"github.com/gorilla/websocket"
 )
 
@@ -19,20 +22,27 @@ func (c *Client) read() {
 	}()
 
 	for {
-		_, msg, err := c.conn.ReadMessage()
+		_, raw, err := c.conn.ReadMessage()
 		if err != nil {
 			break
 		}
-		Ch <- config.RawEvent{
-			Msg: msg,
-			Meta: &config.EventMeta{
-				ID:     0,
-				RoomID: c.roomId,
-				UserID: c.userId,
-			},
-		}
-		H.Broadcast(c.roomId, msg, c)
 
+		msgs, err := middleware.DecodeNetworkMsg(raw)
+		if err != nil {
+			continue
+		}
+
+		var msg []config.ServerMsg
+		for _, m := range msgs {
+			msg = append(msg, c.handleMsg(m))
+		}
+
+		data, err := json.Marshal(msg)
+		if err != nil {
+			return
+		}
+
+		H.Broadcast(c.roomId, data, c)
 	}
 }
 

@@ -41,7 +41,6 @@ func main() {
 	}
 
 	db.NewWriter("./db/sql/events.db")
-	go ws.DecodeLoop()
 
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(os.Getenv("R2_ENDPOINT"))
