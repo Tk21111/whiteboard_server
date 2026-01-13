@@ -167,18 +167,76 @@ func (c *Client) handleMsg(m config.NetworkMsg) config.ServerMsg {
 			Payload: m,
 		}
 
-	default:
-		meta.ID = NextClock(meta.RoomID)
+	case "dom-add":
 
+		meta.ID = NextClock(meta.RoomID)
 		db.WriteEvent(config.Event{
 			EventMeta: *meta,
-			Op:        m.Operation,
+			Op:        "dom-add",
 			Payload:   middleware.EncodeNetworkMsg(m),
 			CreatedAt: time.Now().UnixMilli(),
+		})
+		db.WriteDom(config.DomEvent{
+			RoomID:    c.roomId,
+			UserID:    c.userId,
+			CreatedAt: time.Now().UnixMilli(),
+			UpdatedAt: time.Now().UnixMilli(),
+			DomObjectNetwork: config.DomObjectNetwork{
+				ID:        m.ID,
+				Kind:      m.DomObject.Kind,
+				Transform: m.DomObject.Transform,
+			},
 		})
 
 		return config.ServerMsg{
 			Clock:   meta.ID,
+			Payload: m,
+		}
+
+	case "dom-transform":
+
+		meta.ID = NextClock(meta.RoomID)
+		db.WriteEvent(config.Event{
+			EventMeta: *meta,
+			Op:        "dom-transform",
+			Payload:   middleware.EncodeNetworkMsg(m),
+			CreatedAt: time.Now().UnixMilli(),
+		})
+		db.WriteDom(config.DomEvent{
+			RoomID:    c.roomId,
+			UserID:    c.userId,
+			UpdatedAt: time.Now().UnixMilli(),
+			DomObjectNetwork: config.DomObjectNetwork{
+				ID:        m.ID,
+				Transform: *m.Transform,
+			},
+		})
+
+		return config.ServerMsg{
+			Clock:   meta.ID,
+			Payload: m,
+		}
+	case "dom-remove":
+
+		meta.ID = NextClock(meta.RoomID)
+		db.WriteEvent(config.Event{
+			EventMeta: *meta,
+			Op:        "dom-remove",
+			Payload:   middleware.EncodeNetworkMsg(m),
+			CreatedAt: time.Now().UnixMilli(),
+		})
+
+		db.RemoveDom(m.ID, c.roomId)
+
+		return config.ServerMsg{
+			Clock:   meta.ID,
+			Payload: m,
+		}
+
+	default:
+
+		return config.ServerMsg{
+			Clock:   0,
 			Payload: m,
 		}
 	}

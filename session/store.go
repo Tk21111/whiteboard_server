@@ -3,7 +3,6 @@ package session
 import (
 	"crypto/rand"
 	"encoding/base64"
-	"fmt"
 	"sync"
 )
 
@@ -30,7 +29,6 @@ func Create(userID string) (string, error) {
 func Get(token string) (string, bool) {
 	mu.RLock()
 	defer mu.RUnlock()
-	fmt.Println(store)
 	userID, ok := store[token]
 	return userID, ok
 }

@@ -46,5 +46,5 @@ type Transform struct {
 type DomObjectNetwork struct {
 	ID        string    `json:"id"`
 	Kind      string    `json:"kind"` // img, video, audio
-	Transform Transform `json:"tranform"`
+	Transform Transform `json:"transform"`
 }

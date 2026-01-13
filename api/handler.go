@@ -122,7 +122,7 @@ func GetReplay() http.HandlerFunc {
 
 		events, err := db.GetEvent(roomID, from)
 		if err != nil {
-			http.Error(w, "fail to get replay", http.StatusInternalServerError)
+			http.Error(w, "fail to get event replay", http.StatusInternalServerError)
 			return
 		}
 
@@ -144,12 +144,31 @@ func GetReplay() http.HandlerFunc {
 				}
 				payload.Stroke = &decoded
 			}
-			//TODO-12
-			// case "dom-transform":
-			// case "dom-add":
 
 			replay = append(replay, config.ServerMsg{
 				Clock:   e.ID,
+				Payload: payload,
+			})
+
+			// fmt.Println("%#v\n", replay)
+		}
+
+		dom_objects, err := db.GetActiveDomObjects(roomID)
+		if err != nil {
+			http.Error(w, "fail to get dom replay", http.StatusInternalServerError)
+			return
+		}
+
+		for _, d := range dom_objects {
+
+			var payload config.NetworkMsg = config.NetworkMsg{
+				ID:        d.ID,
+				Operation: "dom-add",
+				DomObject: &d,
+			}
+
+			replay = append(replay, config.ServerMsg{
+				Clock:   0,
 				Payload: payload,
 			})
 
