@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/Tk21111/whiteboard_server/config"
 	"github.com/Tk21111/whiteboard_server/middleware"
@@ -32,14 +33,22 @@ func (c *Client) read() {
 			continue
 		}
 
-		var msg []config.ServerMsg
+		// Use the concrete type for the slice
+		var responses []config.ServerMsg
 		for _, m := range msgs {
-			msg = append(msg, c.handleMsg(m))
+			res := c.handleMsg(m)
+			if res != nil {
+				responses = append(responses, *res)
+			}
 		}
 
-		data, err := json.Marshal(msg)
+		if len(responses) == 0 {
+			continue
+		}
+
+		data, err := json.Marshal(responses)
 		if err != nil {
-			return
+			continue
 		}
 
 		H.Broadcast(c.roomId, data, c)
@@ -47,9 +56,28 @@ func (c *Client) read() {
 }
 
 func (c *Client) write() {
-	for msg := range c.send {
-		if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-			return
+	ticker := time.NewTicker(54 * time.Second) // Must be less than browser timeout
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
+
+	for {
+		select {
+		case msg, ok := <-c.send:
+			if !ok {
+				// Hub closed the channel
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				return
+			}
+		case <-ticker.C:
+			// Send a Ping to keep the connection alive
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
 }

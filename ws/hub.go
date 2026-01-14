@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"encoding/json"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -45,16 +46,51 @@ func (h *Hub) Join(roomID string, c *Client) {
 
 func (h *Hub) Leave(roomID string, c *Client) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
 	room, ok := h.rooms[roomID]
 	if !ok {
+		h.mu.Unlock()
 		return
 	}
 
 	delete(room.clients, c)
-	if len(room.clients) == 0 {
+	isEmpty := len(room.clients) == 0
+	if isEmpty {
 		delete(h.rooms, roomID)
+	}
+	h.mu.Unlock() // Unlock Hub early to allow Broadcast to run safely
+
+	if isEmpty {
+		return // No one left to broadcast to
+	}
+
+	// 1. Identify which objects need unlocking
+	var unlockedIDs []string
+	domLocks.mu.Lock()
+	for id, ownerID := range domLocks.buffer {
+		if ownerID == c.userId {
+			unlockedIDs = append(unlockedIDs, id)
+			delete(domLocks.buffer, id)
+		}
+	}
+	domLocks.mu.Unlock()
+
+	// 2. Broadcast the unlock events to the room
+	if len(unlockedIDs) > 0 {
+		var unlockMsgs []config.ServerMsg
+		for _, id := range unlockedIDs {
+			unlockMsgs = append(unlockMsgs, config.ServerMsg{
+				Clock: 0,
+				Payload: config.NetworkMsg{
+					Operation: "dom-unlock",
+					ID:        id,
+				},
+			})
+		}
+
+		data, err := json.Marshal(unlockMsgs)
+		if err == nil {
+			h.Broadcast(roomID, data, nil) // Send to everyone remaining
+		}
 	}
 }
 
@@ -89,14 +125,22 @@ type StrokeBuffer struct {
 	mu     sync.Mutex
 }
 
+type DomLock struct {
+	buffer map[string]string
+	mu     sync.Mutex
+}
+
 var (
 	// Ch           = make(chan config.RawEvent, 4095)
 	strokeBuffer = StrokeBuffer{
 		buffer: make(map[string]*buffer),
 	}
+	domLocks = DomLock{
+		buffer: make(map[string]string),
+	}
 )
 
-func (c *Client) handleMsg(m config.NetworkMsg) config.ServerMsg {
+func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 	meta := &config.EventMeta{
 		ID:     0, // assigned per event
 		RoomID: c.roomId,
@@ -115,7 +159,7 @@ func (c *Client) handleMsg(m config.NetworkMsg) config.ServerMsg {
 		}
 		strokeBuffer.mu.Unlock()
 
-		return config.ServerMsg{
+		return &config.ServerMsg{
 			Clock:   meta.ID,
 			Payload: m,
 		}
@@ -128,7 +172,7 @@ func (c *Client) handleMsg(m config.NetworkMsg) config.ServerMsg {
 		}
 		strokeBuffer.mu.Unlock()
 
-		return config.ServerMsg{
+		return &config.ServerMsg{
 			Clock:   0,
 			Payload: m,
 		}
@@ -138,7 +182,7 @@ func (c *Client) handleMsg(m config.NetworkMsg) config.ServerMsg {
 		b, ok := strokeBuffer.buffer[m.ID]
 		if !ok {
 			strokeBuffer.mu.Unlock()
-			return config.ServerMsg{
+			return &config.ServerMsg{
 				Clock:   0,
 				Payload: m,
 			}
@@ -156,13 +200,13 @@ func (c *Client) handleMsg(m config.NetworkMsg) config.ServerMsg {
 			CreatedAt: time.Now().UnixMilli(),
 		})
 
-		return config.ServerMsg{
+		return &config.ServerMsg{
 			Clock:   0,
 			Payload: m,
 		}
 
 	case "stroke-add":
-		return config.ServerMsg{
+		return &config.ServerMsg{
 			Clock:   0,
 			Payload: m,
 		}
@@ -188,12 +232,43 @@ func (c *Client) handleMsg(m config.NetworkMsg) config.ServerMsg {
 			},
 		})
 
-		return config.ServerMsg{
+		return &config.ServerMsg{
 			Clock:   meta.ID,
 			Payload: m,
 		}
+	case "dom-lock":
+		domLocks.mu.Lock()
+		defer domLocks.mu.Unlock()
+
+		currentOwner, exists := domLocks.buffer[m.ID]
+		// If someone else has it, deny the lock
+		if exists && currentOwner != c.userId {
+			return &config.ServerMsg{}
+		}
+
+		// Grant or refresh the lock
+		domLocks.buffer[m.ID] = c.userId
+
+		return &config.ServerMsg{Clock: 0, Payload: m}
+
+	case "dom-unlock":
+		domLocks.mu.Lock()
+		if domLocks.buffer[m.ID] == c.userId {
+			delete(domLocks.buffer, m.ID)
+		}
+		domLocks.mu.Unlock()
+		return &config.ServerMsg{Clock: 0, Payload: m}
 
 	case "dom-transform":
+
+		domLocks.mu.Lock()
+		ownerID, exists := domLocks.buffer[m.ID]
+		domLocks.mu.Unlock()
+
+		// If locked by someone else, return empty struct
+		if exists && ownerID != c.userId {
+			return &config.ServerMsg{}
+		}
 
 		meta.ID = NextClock(meta.RoomID)
 		db.WriteEvent(config.Event{
@@ -212,7 +287,7 @@ func (c *Client) handleMsg(m config.NetworkMsg) config.ServerMsg {
 			},
 		})
 
-		return config.ServerMsg{
+		return &config.ServerMsg{
 			Clock:   meta.ID,
 			Payload: m,
 		}
@@ -228,14 +303,19 @@ func (c *Client) handleMsg(m config.NetworkMsg) config.ServerMsg {
 
 		db.RemoveDom(m.ID, c.roomId)
 
-		return config.ServerMsg{
+		return &config.ServerMsg{
 			Clock:   meta.ID,
 			Payload: m,
 		}
 
-	default:
+	case "cursor-update":
+		return &config.ServerMsg{
+			Clock:   0,
+			Payload: m,
+		}
 
-		return config.ServerMsg{
+	default:
+		return &config.ServerMsg{
 			Clock:   0,
 			Payload: m,
 		}

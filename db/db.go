@@ -255,7 +255,7 @@ func GetEvent(roomID string, id string) ([]config.Event, error) {
 	rows, err := W.db.Query(`
         SELECT id, room_id, user_id, entity_id, op, payload, created_at
         FROM events
-        WHERE room_id = ? AND id > ?
+        WHERE room_id = ? AND id > ? AND op = 'stroke-add'
         ORDER BY id ASC
     `, roomID, id)
 	if err != nil {
