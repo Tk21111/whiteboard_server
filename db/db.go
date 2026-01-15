@@ -87,6 +87,7 @@ func NewWriter(dbPath string) {
             w   REAL NOT NULL,
             h   REAL NOT NULL,
     
+			payload TEXT NOT NULL DEFAULT "",
             is_removed INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
@@ -139,16 +140,17 @@ func (w *Writer) writerLoop() {
         INSERT INTO dom_objects
         (
             id, room_id, user_id, kind,
-            x, y, rot, w, h,
+            x, y, rot, w, h, payload ,
             created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ? ,?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ? ,? ,?)
         ON CONFLICT(id) DO UPDATE SET
             x = excluded.x,
             y = excluded.y,
             rot = excluded.rot,
             w = excluded.w,
             h = excluded.h,
+			payload = excluded.payload,
             updated_at = excluded.updated_at
     `)
 	if err != nil {
@@ -189,7 +191,7 @@ func (w *Writer) writerLoop() {
 			d := job.Dom
 			_, err := stmtDom.Exec(
 				d.ID, d.RoomID, d.UserID, d.Kind,
-				d.Transform.X, d.Transform.Y, d.Transform.Rot, d.Transform.W, d.Transform.H,
+				d.Transform.X, d.Transform.Y, d.Transform.Rot, d.Transform.W, d.Transform.H, d.Payload,
 				d.CreatedAt, d.UpdatedAt,
 			)
 			if err != nil {
@@ -282,7 +284,7 @@ func GetActiveDomObjects(roomID string) ([]config.DomObjectNetwork, error) {
 	// ... (Same as your original code)
 	rows, err := W.db.Query(`
         SELECT
-            id, kind, x, y, rot, w, h
+            id, kind, x, y, rot, w, h , payload
         FROM dom_objects
         WHERE room_id = ?
         AND is_removed = 0
@@ -300,7 +302,7 @@ func GetActiveDomObjects(roomID string) ([]config.DomObjectNetwork, error) {
 
 		err := rows.Scan(
 			&dom.ID, &dom.Kind,
-			&t.X, &t.Y, &t.Rot, &t.W, &t.H,
+			&t.X, &t.Y, &t.Rot, &t.W, &t.H, &dom.Payload,
 		)
 		if err != nil {
 			return nil, err

@@ -229,6 +229,7 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 				ID:        m.ID,
 				Kind:      m.DomObject.Kind,
 				Transform: m.DomObject.Transform,
+				Payload:   m.DomObject.Payload,
 			},
 		})
 
