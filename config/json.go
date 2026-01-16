@@ -11,6 +11,7 @@ type NetworkMsg struct {
 	// dom
 	Transform *Transform        `json:"transform,omitempty"`
 	DomObject *DomObjectNetwork `json:"domObject,omitempty"`
+	Payload   *string           `json:"payload,omitempty"`
 }
 
 type EventMeta struct {

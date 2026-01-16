@@ -12,12 +12,13 @@ import (
 
 // Operation Types
 const (
-	OpWriteEvent = iota
-	OpDomUpsert
+	OpDomCreate = iota
+	OpDomTransform
+	OpDomPayload
 	OpDomRemove
+	OpWriteEvent
 )
 
-// DbJob is a unified struct that can hold data for any DB operation
 type DbJob struct {
 	Type         int
 	Event        config.Event
@@ -28,7 +29,7 @@ type DbJob struct {
 
 type Writer struct {
 	db   *sql.DB
-	opCh chan DbJob // Single channel for all writes
+	opCh chan DbJob
 }
 
 var (
@@ -41,7 +42,6 @@ func NewWriter(dbPath string) {
 		panic(err)
 	}
 
-	// Optional but HIGHLY recommended for SQLite
 	if _, err := db.Exec(`
         PRAGMA journal_mode = WAL;
         PRAGMA synchronous = NORMAL;
@@ -114,12 +114,10 @@ func NewWriter(dbPath string) {
 	}
 
 	W = &Writer{
-		db: db,
-		// Combined buffer size
+		db:   db,
 		opCh: make(chan DbJob, 10000),
 	}
 
-	// Start the single unified writer loop
 	go W.writerLoop()
 }
 
@@ -136,27 +134,54 @@ func (w *Writer) writerLoop() {
 	defer stmtEvent.Close()
 
 	// 2. Prepare Dom Upsert Statement
-	stmtDom, err := w.db.Prepare(`
-        INSERT INTO dom_objects
-        (
-            id, room_id, user_id, kind,
-            x, y, rot, w, h, payload ,
-            created_at, updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ? ,? ,?)
-        ON CONFLICT(id) DO UPDATE SET
-            x = excluded.x,
-            y = excluded.y,
-            rot = excluded.rot,
-            w = excluded.w,
-            h = excluded.h,
-			payload = excluded.payload,
-            updated_at = excluded.updated_at
-    `)
+	stmtDomCreate, err := w.db.Prepare(`
+		INSERT INTO dom_objects
+		(
+			id, room_id, user_id, kind,
+			x, y, rot, w, h,
+			payload,
+			created_at, updated_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`)
 	if err != nil {
 		panic(err)
 	}
-	defer stmtDom.Close()
+	defer stmtDomCreate.Close()
+
+	stmtDomTransform, err := w.db.Prepare(`
+		UPDATE dom_objects
+		SET
+			x = ?,
+			y = ?,
+			rot = ?,
+			w = ?,
+			h = ?,
+			updated_at = ?
+		WHERE
+			id = ?
+			AND room_id = ?
+			AND is_removed = 0
+	`)
+	if err != nil {
+		panic(err)
+	}
+	defer stmtDomTransform.Close()
+
+	stmtDomPayload, err := w.db.Prepare(`
+		UPDATE dom_objects
+		SET
+			payload = ?,
+			updated_at = ?
+		WHERE
+			id = ?
+			AND room_id = ?
+			AND is_removed = 0
+	`)
+	if err != nil {
+		panic(err)
+	}
+	defer stmtDomPayload.Close()
 
 	// 3. Prepare Dom Remove Statement
 	stmtRemove, err := w.db.Prepare(`
@@ -181,21 +206,47 @@ func (w *Writer) writerLoop() {
 		case OpWriteEvent:
 			e := job.Event
 			_, err := stmtEvent.Exec(
-				e.ID, e.RoomID, e.UserID, e.EntityID, e.Op, e.Payload, e.CreatedAt,
+				e.ID, e.RoomID, e.UserID, e.EntityID,
+				e.Op, e.Payload, e.CreatedAt,
 			)
 			if err != nil {
 				fmt.Printf("DB Error (Event): %v\n", err)
 			}
 
-		case OpDomUpsert:
+		case OpDomCreate:
 			d := job.Dom
-			_, err := stmtDom.Exec(
+			_, err := stmtDomCreate.Exec(
 				d.ID, d.RoomID, d.UserID, d.Kind,
-				d.Transform.X, d.Transform.Y, d.Transform.Rot, d.Transform.W, d.Transform.H, d.Payload,
+				d.Transform.X, d.Transform.Y,
+				d.Transform.Rot, d.Transform.W, d.Transform.H,
+				d.Payload,
 				d.CreatedAt, d.UpdatedAt,
 			)
 			if err != nil {
-				fmt.Printf("DB Error (Dom Upsert): %v\n", err)
+				fmt.Printf("DB Error (Dom Create): %v\n", err)
+			}
+
+		case OpDomTransform:
+			d := job.Dom
+			_, err := stmtDomTransform.Exec(
+				d.Transform.X, d.Transform.Y,
+				d.Transform.Rot, d.Transform.W, d.Transform.H,
+				d.UpdatedAt,
+				d.ID, d.RoomID,
+			)
+			if err != nil {
+				fmt.Printf("DB Error (Dom Transform): %v\n", err)
+			}
+
+		case OpDomPayload:
+			d := job.Dom
+			_, err := stmtDomPayload.Exec(
+				d.Payload,
+				d.UpdatedAt,
+				d.ID, d.RoomID,
+			)
+			if err != nil {
+				fmt.Printf("DB Error (Dom Payload): %v\n", err)
 			}
 
 		case OpDomRemove:
@@ -209,6 +260,7 @@ func (w *Writer) writerLoop() {
 			}
 		}
 	}
+
 }
 
 // --- Public Write Methods ---
@@ -224,13 +276,13 @@ func WriteEvent(e config.Event) {
 	}
 }
 
-func WriteDom(e config.DomEvent) {
+func WriteDom(e config.DomEvent, op int) {
 	if W == nil {
 		return
 	}
 	// fmt.Println("ch writedom")
 	select {
-	case W.opCh <- DbJob{Type: OpDomUpsert, Dom: e}:
+	case W.opCh <- DbJob{Type: op, Dom: e}:
 	default:
 		fmt.Println("fail ch writeDom")
 	}

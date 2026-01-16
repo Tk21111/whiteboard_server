@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/Tk21111/whiteboard_server/session"
@@ -38,7 +37,24 @@ func HandleAuthAsset() http.HandlerFunc {
 			MaxAge:   60 * 60 * 24 * 7,
 		})
 
-		fmt.Println("cookic seted")
+		w.WriteHeader(http.StatusOK)
+	})
+}
+
+func HandleValidate() http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := r.Header.Get("Authorization")
+		if token == "" {
+			http.Error(w, "missing token", http.StatusBadRequest)
+			return
+		}
+
+		_, err := VerifyIDToken(token)
+		if err != nil {
+			http.Error(w, "invalid token", http.StatusForbidden)
+			return
+		}
+
 		w.WriteHeader(http.StatusOK)
 	})
 }

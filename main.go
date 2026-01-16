@@ -55,6 +55,9 @@ func main() {
 	replayHandler := middleware.CORSMiddleware(api.GetReplay())
 	http.Handle("/get-replay", replayHandler)
 
+	validToken := middleware.CORSMiddleware(auth.HandleValidate())
+	http.Handle("/check-valid", validToken)
+
 	uploadHandler :=
 		middleware.CORSMiddleware(
 			middleware.AuthMiddleware(

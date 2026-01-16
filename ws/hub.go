@@ -231,7 +231,7 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 				Transform: m.DomObject.Transform,
 				Payload:   m.DomObject.Payload,
 			},
-		})
+		}, 0)
 
 		return &config.ServerMsg{
 			Clock:   meta.ID,
@@ -286,12 +286,30 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 				ID:        m.ID,
 				Transform: *m.Transform,
 			},
-		})
+		}, 1)
 
 		return &config.ServerMsg{
 			Clock:   meta.ID,
 			Payload: m,
 		}
+
+	case "dom-payload":
+
+		db.WriteDom(config.DomEvent{
+			RoomID:    c.roomId,
+			UserID:    c.userId,
+			UpdatedAt: time.Now().UnixMilli(),
+			DomObjectNetwork: config.DomObjectNetwork{
+				ID:      m.ID,
+				Payload: *m.Payload,
+			},
+		}, 2)
+
+		return &config.ServerMsg{
+			Clock:   0,
+			Payload: m,
+		}
+
 	case "dom-remove":
 
 		meta.ID = NextClock(meta.RoomID)
