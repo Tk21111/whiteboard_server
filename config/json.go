@@ -12,6 +12,7 @@ type NetworkMsg struct {
 	Transform *Transform        `json:"transform,omitempty"`
 	DomObject *DomObjectNetwork `json:"domObject,omitempty"`
 	Payload   *string           `json:"payload,omitempty"`
+	Pos       *Pos              `json:"pos,omitempty"`
 
 	ClientData *ClientData `json:"clientData,omitempty"`
 }
@@ -36,6 +37,11 @@ type Point struct {
 	X float64 `json:"x"`
 	Y float64 `json:"y"`
 	P float64 `json:"pressure"`
+}
+
+type Pos struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
 }
 
 type Transform struct {
