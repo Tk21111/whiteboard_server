@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/Tk21111/whiteboard_server/auth"
+	"github.com/Tk21111/whiteboard_server/config"
 	"github.com/Tk21111/whiteboard_server/session"
 )
 
@@ -16,25 +17,40 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		userId, err := auth.VerifyIDToken(token)
+		userId, name, profile_pic, err := auth.VerifyIDToken(token)
 		if err != nil {
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 		}
 
-		ctx := context.WithValue(r.Context(), "userId", userId)
+		ctx := r.Context()
+		ctx = context.WithValue(ctx, config.ContextUserIDKey, userId)
+		ctx = context.WithValue(ctx, config.ContextUserNameKey, name)
+		ctx = context.WithValue(ctx, config.ContextUserPicKey, profile_pic)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
+var allowedOrigins = map[string]bool{
+	"http://localhost:5173":                                    true,
+	"http://localhost:3000":                                    true,
+	"http://127.0.0.1:5173":                                    true,
+	"http://192.168.1.105:5173":                                true,
+	"https://noctambulous-logan-multicircuited.ngrok-free.dev": true,
+}
+
 func CORSMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
 
-		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
+		if allowedOrigins[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
+
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 
-		// Preflight request
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

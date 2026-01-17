@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -57,13 +58,12 @@ func (h *Hub) Leave(roomID string, c *Client) {
 	if isEmpty {
 		delete(h.rooms, roomID)
 	}
-	h.mu.Unlock() // Unlock Hub early to allow Broadcast to run safely
+	h.mu.Unlock()
 
 	if isEmpty {
-		return // No one left to broadcast to
+		return
 	}
 
-	// 1. Identify which objects need unlocking
 	var unlockedIDs []string
 	domLocks.mu.Lock()
 	for id, ownerID := range domLocks.buffer {
@@ -75,10 +75,10 @@ func (h *Hub) Leave(roomID string, c *Client) {
 	domLocks.mu.Unlock()
 
 	// 2. Broadcast the unlock events to the room
+	var msgs []config.ServerMsg
 	if len(unlockedIDs) > 0 {
-		var unlockMsgs []config.ServerMsg
 		for _, id := range unlockedIDs {
-			unlockMsgs = append(unlockMsgs, config.ServerMsg{
+			msgs = append(msgs, config.ServerMsg{
 				Clock: 0,
 				Payload: config.NetworkMsg{
 					Operation: "dom-unlock",
@@ -86,12 +86,22 @@ func (h *Hub) Leave(roomID string, c *Client) {
 				},
 			})
 		}
-
-		data, err := json.Marshal(unlockMsgs)
-		if err == nil {
-			h.Broadcast(roomID, data, nil) // Send to everyone remaining
-		}
 	}
+
+	msgs = append(msgs, config.ServerMsg{
+		Clock: 0,
+		Payload: config.NetworkMsg{
+			Operation: "client-leave",
+			ID:        c.userId,
+		},
+	})
+
+	data, err := json.Marshal(msgs)
+	if err == nil {
+		h.Broadcast(roomID, data, nil) // Send to everyone remaining
+	}
+
+	log.Println("leave room", c.roomId, "user", c.userId)
 }
 
 func (h *Hub) Broadcast(roomID string, msg []byte, except *Client) {
@@ -339,4 +349,21 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 			Payload: m,
 		}
 	}
+}
+
+func (h *Hub) GetClients(roomId string) []*Client {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	room, ok := h.rooms[roomId]
+	if !ok {
+		return nil
+	}
+
+	clients := make([]*Client, 0, len(room.clients))
+	for c := range room.clients {
+		clients = append(clients, c)
+	}
+
+	return clients
 }

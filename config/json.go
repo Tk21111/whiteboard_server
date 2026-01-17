@@ -12,6 +12,8 @@ type NetworkMsg struct {
 	Transform *Transform        `json:"transform,omitempty"`
 	DomObject *DomObjectNetwork `json:"domObject,omitempty"`
 	Payload   *string           `json:"payload,omitempty"`
+
+	ClientData *ClientData `json:"clientData,omitempty"`
 }
 
 type EventMeta struct {
@@ -49,4 +51,11 @@ type DomObjectNetwork struct {
 	Kind      string    `json:"kind"` // img, video, audio
 	Transform Transform `json:"transform"`
 	Payload   string    `json:"payload"`
+}
+
+type ClientData struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Color   string `json:"color"`
+	Profile string `json:"profile"`
 }

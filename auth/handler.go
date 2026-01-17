@@ -15,7 +15,7 @@ func HandleAuthAsset() http.HandlerFunc {
 			return
 		}
 
-		userId, err := VerifyIDToken(token)
+		userId, _, _, err := VerifyIDToken(token)
 		if err != nil {
 			http.Error(w, "invalid token", http.StatusForbidden)
 			return
@@ -43,13 +43,18 @@ func HandleAuthAsset() http.HandlerFunc {
 
 func HandleValidate() http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := r.Header.Get("Authorization")
-		if token == "" {
+		auth := r.Header.Get("Authorization")
+		if auth == "" {
 			http.Error(w, "missing token", http.StatusBadRequest)
 			return
 		}
 
-		_, err := VerifyIDToken(token)
+		token, err := ReadBearer(r)
+		if token == "" || err != nil {
+			http.Error(w, "cannot read token", 400)
+		}
+
+		_, _, _, err = VerifyIDToken(token)
 		if err != nil {
 			http.Error(w, "invalid token", http.StatusForbidden)
 			return

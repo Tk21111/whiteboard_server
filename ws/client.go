@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"sync"
 	"time"
 
 	"github.com/Tk21111/whiteboard_server/config"
@@ -10,17 +11,19 @@ import (
 )
 
 type Client struct {
-	conn   *websocket.Conn
-	send   chan []byte
-	roomId string
-	userId string
+	conn    *websocket.Conn
+	send    chan []byte
+	roomId  string
+	userId  string
+	profile string
+	color   string
+	name    string
+
+	closeOnce sync.Once
 }
 
 func (c *Client) read() {
-	defer func() {
-		H.Leave(c.roomId, c)
-		c.conn.Close()
-	}()
+	defer c.close()
 
 	for {
 		_, raw, err := c.conn.ReadMessage()
@@ -59,14 +62,13 @@ func (c *Client) write() {
 	ticker := time.NewTicker(54 * time.Second) // Must be less than browser timeout
 	defer func() {
 		ticker.Stop()
-		c.conn.Close()
+		c.close()
 	}()
 
 	for {
 		select {
 		case msg, ok := <-c.send:
 			if !ok {
-				// Hub closed the channel
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
@@ -74,10 +76,17 @@ func (c *Client) write() {
 				return
 			}
 		case <-ticker.C:
-			// Send a Ping to keep the connection alive
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
 		}
 	}
+}
+
+func (c *Client) close() {
+	c.closeOnce.Do(func() {
+		H.Leave(c.roomId, c)
+		close(c.send)
+		c.conn.Close()
+	})
 }
