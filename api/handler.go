@@ -24,9 +24,9 @@ type SignRequest struct {
 func UploadHandler(client *s3.PresignClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
-		userId := auth.RequireUserId(r)
-		if userId == "" {
-			http.Error(w, "no userid", http.StatusForbidden)
+		userId, err := auth.RequireUserId(r.Context())
+		if err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 
