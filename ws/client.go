@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -69,7 +70,6 @@ func (c *Client) write() {
 		select {
 		case msg, ok := <-c.send:
 			if !ok {
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
 			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
@@ -77,6 +77,7 @@ func (c *Client) write() {
 			}
 		case <-ticker.C:
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				fmt.Println("ping fail force close")
 				return
 			}
 		}
@@ -87,6 +88,6 @@ func (c *Client) close() {
 	c.closeOnce.Do(func() {
 		H.Leave(c.roomId, c)
 		close(c.send)
-		c.conn.Close()
+		_ = c.conn.Close()
 	})
 }

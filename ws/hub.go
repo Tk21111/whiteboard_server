@@ -118,7 +118,6 @@ func (h *Hub) Broadcast(roomID string, msg []byte, except *Client) {
 			select {
 			case c.send <- msg:
 			default:
-				close(c.send)
 				delete(room.clients, c)
 			}
 		}

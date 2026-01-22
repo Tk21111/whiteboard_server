@@ -46,6 +46,8 @@ func main() {
 		o.BaseEndpoint = aws.String(os.Getenv("R2_ENDPOINT"))
 	})
 
+	http.HandleFunc("/start-test", startTestHandler)
+
 	presignClient := s3.NewPresignClient(client)
 	http.HandleFunc("/ws", ws.HandleWS)
 
@@ -76,4 +78,19 @@ func main() {
 
 	log.Println("WS running :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+func startTestHandler(w http.ResponseWriter, r *http.Request) {
+	roomID := r.URL.Query().Get("roomId")
+	if roomID == "" {
+		roomID = "test"
+	}
+
+	strokes := 100_000
+	updates := 30
+
+	go ws.BurnRoom(&ws.H, roomID, strokes, updates)
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("🔥 load test started\n"))
 }
