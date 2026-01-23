@@ -127,7 +127,10 @@ func (h *Hub) Broadcast(roomID string, msg []byte, except *Client) {
 type bufferStruct struct {
 	Stroke *config.StrokeObjectInterface
 	Meta   *config.EventMeta
+	TTL    int64
 }
+
+const StrokeTTL = 10 * time.Minute
 
 type StrokeBufferStruct struct {
 	Buffer map[string]*bufferStruct
@@ -165,6 +168,7 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 		StrokeBuffer.Buffer[m.ID] = &bufferStruct{
 			Stroke: m.Stroke,
 			Meta:   meta,
+			TTL:    time.Now().Add(StrokeTTL).UnixMilli(),
 		}
 		StrokeBuffer.Mu.Unlock()
 
@@ -178,6 +182,7 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 		b, ok := StrokeBuffer.Buffer[m.ID]
 		if ok {
 			b.Stroke.Points = append(b.Stroke.Points, m.Points...)
+			b.TTL = time.Now().Add(StrokeTTL).UnixMilli()
 		}
 		StrokeBuffer.Mu.Unlock()
 
@@ -365,4 +370,23 @@ func (h *Hub) GetClients(roomId string) []*Client {
 	}
 
 	return clients
+}
+
+func StartStrokeTTLGC() {
+	ticker := time.NewTicker(1 * time.Minute)
+
+	go func() {
+		for range ticker.C {
+			now := time.Now().UnixMilli()
+
+			StrokeBuffer.Mu.Lock()
+			for id, b := range StrokeBuffer.Buffer {
+				if b.TTL > 0 && b.TTL <= now {
+					// Drop expired stroke (never ended properly)
+					delete(StrokeBuffer.Buffer, id)
+				}
+			}
+			StrokeBuffer.Mu.Unlock()
+		}
+	}()
 }
