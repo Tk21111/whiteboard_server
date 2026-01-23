@@ -124,14 +124,14 @@ func (h *Hub) Broadcast(roomID string, msg []byte, except *Client) {
 	}
 }
 
-type buffer struct {
-	stroke *config.StrokeObjectInterface
-	meta   *config.EventMeta
+type bufferStruct struct {
+	Stroke *config.StrokeObjectInterface
+	Meta   *config.EventMeta
 }
 
-type StrokeBuffer struct {
-	buffer map[string]*buffer
-	mu     sync.Mutex
+type StrokeBufferStruct struct {
+	Buffer map[string]*bufferStruct
+	Mu     sync.Mutex
 }
 
 type DomLock struct {
@@ -141,8 +141,8 @@ type DomLock struct {
 
 var (
 	// Ch           = make(chan config.RawEvent, 4095)
-	strokeBuffer = StrokeBuffer{
-		buffer: make(map[string]*buffer),
+	StrokeBuffer = StrokeBufferStruct{
+		Buffer: make(map[string]*bufferStruct),
 	}
 	domLocks = DomLock{
 		buffer: make(map[string]string),
@@ -161,12 +161,12 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 	case "stroke-start":
 		meta.ID = NextClock(meta.RoomID)
 
-		strokeBuffer.mu.Lock()
-		strokeBuffer.buffer[m.ID] = &buffer{
-			stroke: m.Stroke,
-			meta:   meta,
+		StrokeBuffer.Mu.Lock()
+		StrokeBuffer.Buffer[m.ID] = &bufferStruct{
+			Stroke: m.Stroke,
+			Meta:   meta,
 		}
-		strokeBuffer.mu.Unlock()
+		StrokeBuffer.Mu.Unlock()
 
 		return &config.ServerMsg{
 			Clock:   meta.ID,
@@ -174,12 +174,12 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 		}
 
 	case "stroke-update":
-		strokeBuffer.mu.Lock()
-		b, ok := strokeBuffer.buffer[m.ID]
+		StrokeBuffer.Mu.Lock()
+		b, ok := StrokeBuffer.Buffer[m.ID]
 		if ok {
-			b.stroke.Points = append(b.stroke.Points, m.Points...)
+			b.Stroke.Points = append(b.Stroke.Points, m.Points...)
 		}
-		strokeBuffer.mu.Unlock()
+		StrokeBuffer.Mu.Unlock()
 
 		return &config.ServerMsg{
 			Clock:   0,
@@ -187,25 +187,25 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 		}
 
 	case "stroke-end":
-		strokeBuffer.mu.Lock()
-		b, ok := strokeBuffer.buffer[m.ID]
+		StrokeBuffer.Mu.Lock()
+		b, ok := StrokeBuffer.Buffer[m.ID]
 		if !ok {
-			strokeBuffer.mu.Unlock()
+			StrokeBuffer.Mu.Unlock()
 			return &config.ServerMsg{
 				Clock:   0,
 				Payload: m,
 			}
 		}
-		delete(strokeBuffer.buffer, m.ID)
-		strokeBuffer.mu.Unlock()
+		delete(StrokeBuffer.Buffer, m.ID)
+		StrokeBuffer.Mu.Unlock()
 
 		// flush buffered stroke
 		// fmt.Printf("%#v\n", b.stroke)
 
 		db.WriteEvent(config.Event{
-			EventMeta: *b.meta,
+			EventMeta: *b.Meta,
 			Op:        "stroke-add",
-			Payload:   middleware.EncodeNetworkMsg(b.stroke),
+			Payload:   middleware.EncodeNetworkMsg(b.Stroke),
 			CreatedAt: time.Now().UnixMilli(),
 		})
 

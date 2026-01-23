@@ -11,6 +11,7 @@ import (
 	"github.com/Tk21111/whiteboard_server/auth"
 	"github.com/Tk21111/whiteboard_server/config"
 	"github.com/Tk21111/whiteboard_server/db"
+	"github.com/Tk21111/whiteboard_server/ws"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
@@ -41,6 +42,7 @@ func UploadHandler(client *s3.PresignClient) http.HandlerFunc {
 			return
 		}
 
+		fmt.Printf("%v\n", req.MimeType)
 		if strings.HasPrefix(req.MimeType, "image/") {
 			if req.Size > 10*1024*1024 {
 				http.Error(w, "image too large", http.StatusForbidden)
@@ -58,9 +60,11 @@ func UploadHandler(client *s3.PresignClient) http.HandlerFunc {
 		objectKey := fmt.Sprintf("rooms/%s/%s-%d", req.RoomId, userId, time.Now().UnixNano())
 
 		presignedReq, err := client.PresignPutObject(r.Context(), &s3.PutObjectInput{
-			Bucket:      aws.String(os.Getenv("R2_BUCKET")),
-			Key:         aws.String(objectKey),
-			ContentType: aws.String(req.MimeType),
+			Bucket:             aws.String(os.Getenv("R2_BUCKET")),
+			Key:                aws.String(objectKey),
+			ContentType:        aws.String(req.MimeType),
+			CacheControl:       aws.String("private, max-age=0"),
+			ContentDisposition: aws.String("inline"),
 		}, func(po *s3.PresignOptions) {
 			po.Expires = 15 * time.Minute
 		})
@@ -174,6 +178,29 @@ func GetReplay() http.HandlerFunc {
 
 			// fmt.Println("%#v\n", replay)
 		}
+
+		ws.StrokeBuffer.Mu.Lock()
+		for _, d := range ws.StrokeBuffer.Buffer {
+
+			if d.Meta.RoomID != roomID {
+				continue
+			}
+
+			var payload config.NetworkMsg = config.NetworkMsg{
+				ID:        d.Stroke.ID,
+				Operation: "stroke-start",
+				Stroke:    d.Stroke,
+			}
+
+			replay = append(replay, config.ServerMsg{
+				Clock:   0,
+				Payload: payload,
+			})
+
+			// fmt.Println("%#v\n", replay)
+
+		}
+		ws.StrokeBuffer.Mu.Unlock()
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(replay)
