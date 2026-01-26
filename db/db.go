@@ -366,3 +366,19 @@ func GetActiveDomObjects(roomID string) ([]config.DomObjectNetwork, error) {
 
 	return result, nil
 }
+
+func GetMaxIdByRoom(roomID string) (int64, error) {
+	var maxID int64
+
+	err := W.db.QueryRow(`
+		SELECT COALESCE(MAX(id), 0)
+		FROM events
+		WHERE room_id = ?
+	`, roomID).Scan(&maxID)
+
+	if err != nil {
+		return 0, err
+	}
+
+	return maxID, nil
+}

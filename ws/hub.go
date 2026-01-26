@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -36,9 +37,16 @@ func (h *Hub) Join(roomID string, c *Client) {
 
 	room, ok := h.rooms[roomID]
 	if !ok {
+
+		maxId, err := db.GetMaxIdByRoom(roomID)
+		if err != nil {
+			fmt.Println("[db] get max id err")
+		}
 		room = &Room{
 			clients: make(map[*Client]bool),
 		}
+		room.clock.Store(maxId)
+
 		h.rooms[roomID] = room
 	}
 
@@ -163,7 +171,6 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 
 	case "stroke-start":
 		meta.ID = NextClock(meta.RoomID)
-
 		StrokeBuffer.Mu.Lock()
 		StrokeBuffer.Buffer[m.ID] = &bufferStruct{
 			Stroke: m.Stroke,
@@ -194,6 +201,7 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 	case "stroke-end":
 		StrokeBuffer.Mu.Lock()
 		b, ok := StrokeBuffer.Buffer[m.ID]
+
 		if !ok {
 			StrokeBuffer.Mu.Unlock()
 			return &config.ServerMsg{
