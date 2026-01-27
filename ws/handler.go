@@ -29,6 +29,10 @@ func HandleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// userId := uuid.NewString()
+	// name := uuid.NewString()
+	// profPic := ""
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("upgrade:", err)

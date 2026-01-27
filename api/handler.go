@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -135,7 +136,7 @@ func GetReplay() http.HandlerFunc {
 		for _, e := range events {
 
 			var payload config.NetworkMsg = config.NetworkMsg{
-				ID:        e.EntityID,
+				ID:        strconv.FormatInt(e.ID, 10),
 				Operation: e.Op,
 			}
 

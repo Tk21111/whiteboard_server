@@ -213,13 +213,14 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 		StrokeBuffer.Mu.Unlock()
 
 		// flush buffered stroke
-		// fmt.Printf("%#v\n", b.stroke)
+		// fmt.Printf("%#v\n", b.Stroke)
 
 		db.WriteEvent(config.Event{
 			EventMeta: *b.Meta,
 			Op:        "stroke-add",
 			Payload:   middleware.EncodeNetworkMsg(b.Stroke),
 			CreatedAt: time.Now().UnixMilli(),
+			EntityID:  b.Stroke.ID,
 		})
 
 		return &config.ServerMsg{
@@ -241,6 +242,7 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 			Op:        "dom-add",
 			Payload:   middleware.EncodeNetworkMsg(m),
 			CreatedAt: time.Now().UnixMilli(),
+			EntityID:  m.ID,
 		})
 		db.WriteDom(config.DomEvent{
 			RoomID:    c.roomId,
@@ -299,6 +301,7 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 			Op:        "dom-transform",
 			Payload:   middleware.EncodeNetworkMsg(m),
 			CreatedAt: time.Now().UnixMilli(),
+			EntityID:  m.ID,
 		})
 		db.WriteDom(config.DomEvent{
 			RoomID:    c.roomId,
@@ -340,6 +343,7 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 			Op:        "dom-remove",
 			Payload:   middleware.EncodeNetworkMsg(m),
 			CreatedAt: time.Now().UnixMilli(),
+			EntityID:  m.ID,
 		})
 
 		db.RemoveDom(m.ID, c.roomId)
