@@ -19,6 +19,7 @@ type Client struct {
 	profile string
 	color   string
 	name    string
+	role    config.Role
 
 	closeOnce sync.Once
 }

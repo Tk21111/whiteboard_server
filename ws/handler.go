@@ -6,6 +6,7 @@ import (
 
 	"github.com/Tk21111/whiteboard_server/auth"
 	"github.com/Tk21111/whiteboard_server/config"
+	"github.com/Tk21111/whiteboard_server/db"
 	"github.com/Tk21111/whiteboard_server/middleware"
 	"github.com/gorilla/websocket"
 )
@@ -23,32 +24,34 @@ func HandleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userId, name, profPic, err := auth.VerifyIDToken(token)
+	user, err := auth.VerifyIDToken(token)
 	if err != nil {
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return
 	}
 
-	// userId := uuid.NewString()
-	// name := uuid.NewString()
-	// profPic := ""
-
+	role, err := db.EnsureUserInRoom(roomId, user.UserID)
+	if err != nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("upgrade:", err)
 		return
 	}
 
-	color := middleware.ColorFromUserID(userId)
+	color := middleware.ColorFromUserID(user.UserID)
 
 	client := &Client{
 		conn:    conn,
 		send:    make(chan []byte, 256),
 		roomId:  roomId,
-		userId:  userId,
-		name:    name,
-		profile: profPic,
+		userId:  user.UserID,
+		name:    user.Name,
+		profile: user.Picture,
 		color:   color,
+		role:    role,
 	}
 
 	/* --------------------------------------------------
@@ -90,12 +93,12 @@ func HandleWS(w http.ResponseWriter, r *http.Request) {
 		{
 			Payload: config.NetworkMsg{
 				Operation: "client-join",
-				ID:        userId,
+				ID:        client.userId,
 				ClientData: &config.ClientData{
-					ID:      userId,
-					Name:    name,
+					ID:      client.userId,
+					Name:    user.Name,
 					Color:   color,
-					Profile: profPic,
+					Profile: client.profile,
 				},
 			},
 			Clock: 0,
@@ -115,7 +118,7 @@ func HandleWS(w http.ResponseWriter, r *http.Request) {
 
 	H.Join(roomId, client)
 
-	log.Println("join room", roomId, "user", userId)
+	log.Println("join room", roomId, "user", client.userId)
 
 	/* --------------------------------------------------
 	   4. START IO

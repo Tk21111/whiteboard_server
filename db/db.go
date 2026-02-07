@@ -17,6 +17,9 @@ const (
 	OpDomPayload
 	OpDomRemove
 	OpWriteEvent
+	OpRoomCreate
+	OpRoomEditUser
+	OpUser
 )
 
 type DbJob struct {
@@ -25,6 +28,8 @@ type DbJob struct {
 	Dom          config.DomEvent
 	RemoveID     string
 	RemoveRoomID string
+	Room         config.RoomEvent
+	User         config.UserEvent
 }
 
 type Writer struct {
@@ -41,6 +46,10 @@ func NewWriter(dbPath string) {
 	if err != nil {
 		panic(err)
 	}
+
+	_, _ = db.Exec(`ALTER TABLE users_data ADD COLUMN name TEXT NOT NULL DEFAULT ""`)
+	_, _ = db.Exec(`ALTER TABLE users_data ADD COLUMN given_name TEXT NOT NULL DEFAULT ""`)
+	_, _ = db.Exec(`ALTER TABLE users_data ADD COLUMN email TEXT NOT NULL DEFAULT ""`)
 
 	if _, err := db.Exec(`
         PRAGMA journal_mode = WAL;
@@ -59,6 +68,7 @@ func NewWriter(dbPath string) {
             entity_id TEXT NOT NULL,
             op TEXT NOT NULL,
             payload BLOB NOT NULL,
+			area TEXT NOT NULL DEFAULT "",
             created_at INTEGER NOT NULL
         );
     `)
@@ -88,10 +98,66 @@ func NewWriter(dbPath string) {
             h   REAL NOT NULL,
     
 			payload TEXT NOT NULL DEFAULT "",
+			area TEXT NOT NULL DEFAULT "",
             is_removed INTEGER NOT NULL DEFAULT 0,
+
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
+    `)
+	if err != nil {
+		panic(err)
+	}
+
+	//tiles
+	_, err = db.Exec(`
+        CREATE TABLE IF NOT EXISTS tiles (
+            id INTEGER PRIMARY KEY,
+            room_id TEXT NOT NULL,
+            area TEXT NOT NULL
+        );
+    `)
+	if err != nil {
+		panic(err)
+	}
+
+	//room
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS rooms (
+			room_id TEXT PRIMARY KEY,
+			owner_id TEXT NOT NULL,
+			public INTEGER NOT NULL DEFAULT 1,
+			created_at INTEGER NOT NULL
+		);
+    `)
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS users_data (
+		user_id TEXT PRIMARY KEY,
+		role INTEGER NOT NULL DEFAULT 0,
+
+		name TEXT NOT NULL DEFAULT "",
+		given_name TEXT NOT NULL DEFAULT "",
+		email TEXT NOT NULL DEFAULT "",
+
+		created_at INTEGER NOT NULL
+	);
+    `)
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = db.Exec(`
+			CREATE TABLE IF NOT EXISTS users_rooms (
+			user_id TEXT NOT NULL,
+			room_id TEXT NOT NULL,
+			role INTEGER NOT NULL DEFAULT 0,
+			joined_at INTEGER NOT NULL,
+			PRIMARY KEY (user_id, room_id)
+		);
     `)
 	if err != nil {
 		panic(err)
@@ -199,6 +265,50 @@ func (w *Writer) writerLoop() {
 	}
 	defer stmtRemove.Close()
 
+	stmtCreateRoom, err := w.db.Prepare(`
+		INSERT INTO rooms (room_id, owner_id, public, created_at)
+		VALUES (?, ?, 1, ?)
+	`)
+	if err != nil {
+		panic(err)
+	}
+	defer stmtCreateRoom.Close()
+
+	stmtEditRoom, err := w.db.Prepare(`
+		INSERT INTO users_rooms (user_id, room_id, role, joined_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(user_id, room_id)
+		DO UPDATE SET
+			role = excluded.role
+	`)
+	if err != nil {
+		panic(err)
+	}
+	defer stmtEditRoom.Close()
+
+	stmtUser, err := w.db.Prepare(`
+		INSERT INTO users_data (
+			user_id,
+			role,
+			name,
+			given_name,
+			email,
+			created_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(user_id)
+		DO UPDATE SET
+			role = excluded.role,
+			name = excluded.name,
+			given_name = excluded.given_name,
+			email = excluded.email
+	`)
+
+	if err != nil {
+		panic(err)
+	}
+	defer stmtUser.Close()
+
 	// --- Main Loop ---
 	for job := range w.opCh {
 		switch job.Type {
@@ -258,6 +368,64 @@ func (w *Writer) writerLoop() {
 			if err != nil {
 				fmt.Printf("DB Error (Dom Remove): %v\n", err)
 			}
+		case OpRoomCreate:
+			j := job.Room
+
+			tx, err := w.db.Begin()
+			if err != nil {
+				j.Result <- err
+				break
+			}
+
+			_, err = tx.Exec(
+				`INSERT INTO rooms (room_id, owner_id, public, created_at)
+		 		VALUES (?, ?, ?, ?)`,
+				j.RoomID, j.UserID, j.Public, j.Now,
+			)
+			if err != nil {
+				tx.Rollback()
+				j.Result <- err
+				break
+			}
+
+			_, err = tx.Exec(
+				`INSERT INTO users_rooms (user_id, room_id, role, joined_at)
+		 		VALUES (?, ?, 3, ?)`,
+				j.UserID, j.RoomID, j.Now,
+			)
+			if err != nil {
+				tx.Rollback()
+				j.Result <- err
+				break
+			}
+
+			err = tx.Commit()
+			j.Result <- err
+		case OpRoomEditUser:
+			j := job.Room
+			_, err := stmtEditRoom.Exec(
+				j.UserID,
+				j.RoomID,
+				int(j.Role),
+				time.Now().UnixMilli(),
+			)
+			if err != nil {
+				fmt.Printf("DB Error (Join Room): %v\n", err)
+			}
+		case OpUser:
+			j := job.User
+			_, err := stmtUser.Exec(
+				j.UserID,
+				int(j.Role),
+				j.Name,
+				j.GivenName,
+				j.Email,
+				j.Created_at,
+			)
+			if err != nil {
+				fmt.Printf("DB Error (Edit User): %v\n", err)
+			}
+
 		}
 	}
 
@@ -298,6 +466,79 @@ func RemoveDom(id, roomId string) {
 	default:
 		fmt.Println("fail ch removeDom")
 	}
+}
+
+// crate and join
+func CreateRoom(roomId, userId string, public int8) error {
+	if W == nil {
+		return fmt.Errorf("writer not initialized")
+	}
+
+	result := make(chan error, 1)
+
+	W.opCh <- DbJob{
+		Type: OpRoomCreate,
+		Room: config.RoomEvent{
+			RoomID: roomId,
+			UserID: userId,
+			Public: public,
+			Now:    time.Now().UnixMilli(),
+			Result: result,
+		},
+	}
+
+	return <-result
+}
+
+func JoinRoom(roomId, userId string, role config.Role) error {
+	if W == nil {
+		return fmt.Errorf("writer not initialized")
+	}
+
+	select {
+	case W.opCh <- DbJob{
+		Type: OpRoomEditUser,
+		Room: config.RoomEvent{
+			RoomID: roomId,
+			UserID: userId,
+			Role:   role,
+		},
+	}:
+	default:
+		fmt.Println("fail ch joinRoom")
+	}
+
+	return nil
+}
+
+func CreateUser(
+	userId string,
+	role config.Role,
+	name string,
+	givenName string,
+	email string,
+) error {
+	if W == nil {
+		return fmt.Errorf("writer not initialized")
+	}
+
+	select {
+	case W.opCh <- DbJob{
+		Type: OpUser,
+		User: config.UserEvent{
+			UserID:     userId,
+			Role:       role,
+			Name:       name,
+			GivenName:  givenName,
+			Email:      email,
+			Created_at: time.Now().Unix(),
+		},
+	}:
+	default:
+		fmt.Println("fail ch createUser")
+	}
+
+	return nil
 }
 
 // --- Read Methods (Unchanged, safe for concurrent read) ---
@@ -381,4 +622,136 @@ func GetMaxIdByRoom(roomID string) (int64, error) {
 	}
 
 	return maxID, nil
+}
+
+type ViewResult int
+
+const (
+	NotExist ViewResult = iota
+	NoPerm
+	Perm
+)
+
+func CheckRegister(userId string) (ViewResult, error) {
+	var dummy int
+
+	err := W.db.QueryRow(`
+		SELECT 1
+		FROM users_data
+		WHERE user_id = ?
+	`, userId).Scan(&dummy)
+
+	if err == sql.ErrNoRows {
+		return NotExist, nil
+	}
+	if err != nil {
+		return NotExist, err
+	}
+
+	return Perm, nil
+}
+
+func CheckCanViewRoom(roomId string, userId string) (ViewResult, error) {
+	var ownerID string
+	var isPublic int
+
+	err := W.db.QueryRow(`
+		SELECT owner_id, public
+		FROM rooms
+		WHERE room_id = ?
+	`, roomId).Scan(&ownerID, &isPublic)
+
+	if err == sql.ErrNoRows {
+		return NotExist, nil
+	}
+	if err != nil {
+		return NoPerm, err
+	}
+
+	if ownerID == userId || isPublic == 1 {
+		return Perm, nil
+	}
+
+	return NoPerm, nil
+}
+
+func CheckcanEditRoom(roomId string, userId string) (ViewResult, error) {
+	var ownerID string
+	var isPublic int
+
+	err := W.db.QueryRow(`
+		SELECT owner_id, public
+		FROM rooms
+		WHERE room_id = ?
+	`, roomId).Scan(&ownerID, &isPublic)
+
+	if err == sql.ErrNoRows {
+		return NotExist, nil
+	}
+	if err != nil {
+		return NoPerm, err
+	}
+
+	if ownerID == userId {
+		return Perm, nil
+	}
+
+	return NoPerm, nil
+}
+func GetUserRole(userId string) (int, error) {
+	var role int
+
+	err := W.db.QueryRow(`
+		SELECT role
+		FROM users_data
+		WHERE user_id = ?
+	`, userId).Scan(&role)
+
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	return role, nil
+}
+
+func GetUserRoomRole(roomId string, userId string) (int64, error) {
+	var role int64
+
+	err := W.db.QueryRow(`
+		SELECT role
+		FROM users_rooms
+		WHERE user_id = ? AND room_id = ?
+	`, userId, roomId).Scan(&role)
+
+	if err == sql.ErrNoRows {
+		return -1, nil
+	}
+	if err != nil {
+		return -2, err
+	}
+
+	return role, nil
+}
+
+func CheckRoomExisted(roomId string) (bool, error) {
+	var dummy string
+
+	err := W.db.QueryRow(`
+		SELECT 1
+		FROM rooms
+		WHERE room_id = ?
+	`, roomId).Scan(&dummy)
+
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
 }

@@ -17,15 +17,15 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		userId, name, profile_pic, err := auth.VerifyIDToken(token)
+		user, err := auth.VerifyIDToken(token)
 		if err != nil {
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 		}
 
 		ctx := r.Context()
-		ctx = context.WithValue(ctx, config.ContextUserIDKey, userId)
-		ctx = context.WithValue(ctx, config.ContextUserNameKey, name)
-		ctx = context.WithValue(ctx, config.ContextUserPicKey, profile_pic)
+		ctx = context.WithValue(ctx, config.ContextUserIDKey, user.UserID)
+		ctx = context.WithValue(ctx, config.ContextUserNameKey, user.Name)
+		ctx = context.WithValue(ctx, config.ContextUserPicKey, user.Picture)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -75,7 +75,7 @@ func RequireSession(next http.Handler) http.Handler {
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), "user", userID)
+		ctx := context.WithValue(r.Context(), config.ContextUserIDKey, userID)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

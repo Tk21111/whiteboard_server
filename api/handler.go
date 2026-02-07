@@ -125,9 +125,21 @@ func GetReplay() http.HandlerFunc {
 			from = "0"
 		}
 
+		userId, err := auth.RequireUserId(r.Context())
+		if err != nil {
+			http.Error(w, "cannot get userId", 500)
+			return
+		}
+
+		_, err = db.EnsureUserInRoom(roomID, userId)
+		if err != nil {
+			http.Error(w, "user don't have perm", 403)
+			return
+		}
+
 		events, err := db.GetEvent(roomID, from)
 		if err != nil {
-			http.Error(w, "fail to get event replay", http.StatusInternalServerError)
+			http.Error(w, "fail to get event replay", 500)
 			return
 		}
 
@@ -135,13 +147,12 @@ func GetReplay() http.HandlerFunc {
 
 		for _, e := range events {
 
-			var payload config.NetworkMsg = config.NetworkMsg{
+			payload := config.NetworkMsg{
 				ID:        strconv.FormatInt(e.ID, 10),
 				Operation: e.Op,
 			}
 
 			switch e.Op {
-
 			case "stroke-add":
 				var decoded config.StrokeObjectInterface
 				if err := json.Unmarshal(e.Payload, &decoded); err != nil {
@@ -154,56 +165,74 @@ func GetReplay() http.HandlerFunc {
 				Clock:   e.ID,
 				Payload: payload,
 			})
-
-			// fmt.Println("%#v\n", replay)
 		}
 
-		dom_objects, err := db.GetActiveDomObjects(roomID)
+		doms, err := db.GetActiveDomObjects(roomID)
 		if err != nil {
-			http.Error(w, "fail to get dom replay", http.StatusInternalServerError)
+			http.Error(w, "fail to get dom replay", 500)
 			return
 		}
 
-		for _, d := range dom_objects {
-
-			var payload config.NetworkMsg = config.NetworkMsg{
-				ID:        d.ID,
-				Operation: "dom-add",
-				DomObject: &d,
-			}
-
+		for _, d := range doms {
 			replay = append(replay, config.ServerMsg{
-				Clock:   0,
-				Payload: payload,
+				Clock: 0,
+				Payload: config.NetworkMsg{
+					ID:        d.ID,
+					Operation: "dom-add",
+					DomObject: &d,
+				},
 			})
-
-			// fmt.Println("%#v\n", replay)
 		}
 
 		ws.StrokeBuffer.Mu.Lock()
 		for _, d := range ws.StrokeBuffer.Buffer {
-
 			if d.Meta.RoomID != roomID {
 				continue
 			}
 
-			var payload config.NetworkMsg = config.NetworkMsg{
-				ID:        d.Stroke.ID,
-				Operation: "stroke-start",
-				Stroke:    d.Stroke,
-			}
-
 			replay = append(replay, config.ServerMsg{
-				Clock:   0,
-				Payload: payload,
+				Clock: 0,
+				Payload: config.NetworkMsg{
+					ID:        d.Stroke.ID,
+					Operation: "stroke-start",
+					Stroke:    d.Stroke,
+				},
 			})
-
-			// fmt.Println("%#v\n", replay)
-
 		}
 		ws.StrokeBuffer.Mu.Unlock()
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(replay)
+	}
+}
+
+func OwnerAddUser() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userId := r.Context().Value(config.ContextUserIDKey).(string)
+		roomId := r.URL.Query().Get("roomId")
+		reqUserId := r.URL.Query().Get("userId")
+
+		roleStr := r.URL.Query().Get("role")
+		roleInt, err := strconv.Atoi(roleStr)
+		if err != nil {
+			fmt.Println("[roleStr to Int err]")
+			fmt.Println(err)
+			http.Error(w, "invalid role", http.StatusBadRequest)
+			return
+		}
+
+		result, err := db.CheckcanEditRoom(roomId, userId)
+		if err != nil {
+			http.Error(w, "check role err", http.StatusInternalServerError)
+			return
+		}
+
+		if !PermHelper(&result, w) {
+			return
+		}
+
+		db.JoinRoom(roomId, reqUserId, config.IntToRole(roleInt))
+
+		w.WriteHeader(http.StatusOK)
 	}
 }

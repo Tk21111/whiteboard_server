@@ -1,8 +1,11 @@
 package auth
 
 import (
+	"fmt"
 	"net/http"
 
+	"github.com/Tk21111/whiteboard_server/config"
+	"github.com/Tk21111/whiteboard_server/db"
 	"github.com/Tk21111/whiteboard_server/session"
 )
 
@@ -15,13 +18,13 @@ func HandleAuthAsset() http.HandlerFunc {
 			return
 		}
 
-		userId, _, _, err := VerifyIDToken(token)
+		user, err := VerifyIDToken(token)
 		if err != nil {
 			http.Error(w, "invalid token", http.StatusForbidden)
 			return
 		}
 
-		sessionToken, err := session.Create(userId)
+		sessionToken, err := session.Create(user.UserID)
 		if err != nil {
 			http.Error(w, "fail to create seesion", http.StatusInternalServerError)
 			return
@@ -54,10 +57,25 @@ func HandleValidate() http.HandlerFunc {
 			http.Error(w, "cannot read token", 400)
 		}
 
-		_, _, _, err = VerifyIDToken(token)
+		user, err := VerifyIDToken(token)
 		if err != nil {
 			http.Error(w, "invalid token", http.StatusForbidden)
 			return
+		}
+
+		result, err := db.CheckRegister(user.UserID)
+		if err != nil {
+			http.Error(w, "cannot query", 500)
+			return
+		}
+
+		if result == db.NotExist {
+			fmt.Println("db not exist ceate user")
+			db.CreateUser(user.UserID,
+				config.RoleGuest,
+				user.Name,
+				user.GivenName,
+				user.Email)
 		}
 
 		w.WriteHeader(http.StatusOK)

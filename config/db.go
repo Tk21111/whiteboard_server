@@ -22,3 +22,23 @@ type DomEvent struct {
 	CreatedAt int64  `json:"ts"`
 	UpdatedAt int64  `json:"update_at"`
 }
+
+type RoomEvent struct {
+	RoomID string
+	UserID string
+	Now    int64
+	Public int8
+	Role   Role
+	Result chan error
+}
+
+type UserEvent struct {
+	UserID string
+	Role   Role
+
+	Name      string
+	GivenName string
+	Email     string
+
+	Created_at int64
+}

@@ -56,7 +56,7 @@ func main() {
 	cookieHandler := middleware.CORSMiddleware(auth.HandleAuthAsset())
 	http.Handle("/cookie", cookieHandler)
 
-	replayHandler := middleware.CORSMiddleware(api.GetReplay())
+	replayHandler := middleware.CORSMiddleware(middleware.RequireSession(api.GetReplay()))
 	http.Handle("/get-replay", replayHandler)
 
 	validToken := middleware.CORSMiddleware(auth.HandleValidate())
@@ -77,6 +77,9 @@ func main() {
 			),
 		)
 	http.Handle("/get", getHandler)
+
+	addUser := middleware.CORSMiddleware(middleware.RequireSession(api.OwnerAddUser()))
+	http.Handle("/add-user", addUser)
 
 	log.Println("WS running :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
