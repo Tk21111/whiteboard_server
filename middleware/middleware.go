@@ -6,6 +6,7 @@ import (
 
 	"github.com/Tk21111/whiteboard_server/auth"
 	"github.com/Tk21111/whiteboard_server/config"
+	"github.com/Tk21111/whiteboard_server/db"
 	"github.com/Tk21111/whiteboard_server/session"
 )
 
@@ -76,7 +77,24 @@ func RequireSession(next http.Handler) http.Handler {
 		}
 
 		ctx := context.WithValue(r.Context(), config.ContextUserIDKey, userID)
-
 		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func RequireRole(next http.Handler, reqRole int) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		role, err := db.GetUserRole(r.Context().Value(config.ContextUserIDKey).(string))
+		if err != nil {
+			http.Error(w, "cannot get user role", 500)
+			return
+		}
+
+		if role < reqRole {
+			http.Error(w, "no perm", 403)
+			return
+		}
+
+		next.ServeHTTP(w, r)
 	})
 }

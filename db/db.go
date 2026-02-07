@@ -47,10 +47,6 @@ func NewWriter(dbPath string) {
 		panic(err)
 	}
 
-	_, _ = db.Exec(`ALTER TABLE users_data ADD COLUMN name TEXT NOT NULL DEFAULT ""`)
-	_, _ = db.Exec(`ALTER TABLE users_data ADD COLUMN given_name TEXT NOT NULL DEFAULT ""`)
-	_, _ = db.Exec(`ALTER TABLE users_data ADD COLUMN email TEXT NOT NULL DEFAULT ""`)
-
 	if _, err := db.Exec(`
         PRAGMA journal_mode = WAL;
         PRAGMA synchronous = NORMAL;
@@ -698,6 +694,26 @@ func CheckcanEditRoom(roomId string, userId string) (ViewResult, error) {
 
 	return NoPerm, nil
 }
+
+func GetUserIDByEmail(email string) (string, error) {
+	var userID string
+
+	err := W.db.QueryRow(`
+		SELECT user_id
+		FROM users_data
+		WHERE email = ?
+	`, email).Scan(&userID)
+
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+
+	return userID, nil
+}
+
 func GetUserRole(userId string) (int, error) {
 	var role int
 
@@ -754,4 +770,67 @@ func CheckRoomExisted(roomId string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+func GetAllUserInRoom(roomId string) ([]config.UserEvent, error) {
+	var (
+		rows *sql.Rows
+		err  error
+	)
+
+	if roomId != "" {
+		// room-based role
+		rows, err = W.db.Query(`
+			SELECT
+				u.user_id,
+				ur.role,           -- room role
+				u.name,
+				u.given_name,
+				u.email,
+				u.created_at
+			FROM users_data u
+			INNER JOIN users_rooms ur ON u.user_id = ur.user_id
+			WHERE ur.room_id = ?
+		`, roomId)
+	} else {
+		// global role
+		rows, err = W.db.Query(`
+			SELECT
+				user_id,
+				role,              -- global role
+				name,
+				given_name,
+				email,
+				created_at
+			FROM users_data
+			WHERE role < 2
+		`)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []config.UserEvent
+	for rows.Next() {
+		var u config.UserEvent
+		var role int
+
+		if err := rows.Scan(
+			&u.UserID,
+			&role,
+			&u.Name,
+			&u.GivenName,
+			&u.Email,
+			&u.Created_at,
+		); err != nil {
+			return nil, err
+		}
+
+		u.Role = config.Role(role)
+		users = append(users, u)
+	}
+
+	return users, nil
 }

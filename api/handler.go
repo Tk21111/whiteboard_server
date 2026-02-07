@@ -206,33 +206,55 @@ func GetReplay() http.HandlerFunc {
 	}
 }
 
+type AddUserReq struct {
+	RoomID string `json:"roomId"`
+	User   string `json:"user"` // email or userId
+	Role   int    `json:"role"`
+}
+
 func OwnerAddUser() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userId := r.Context().Value(config.ContextUserIDKey).(string)
-		roomId := r.URL.Query().Get("roomId")
-		reqUserId := r.URL.Query().Get("userId")
+		ownerID := r.Context().Value(config.ContextUserIDKey).(string)
 
-		roleStr := r.URL.Query().Get("role")
-		roleInt, err := strconv.Atoi(roleStr)
-		if err != nil {
-			fmt.Println("[roleStr to Int err]")
-			fmt.Println(err)
-			http.Error(w, "invalid role", http.StatusBadRequest)
+		var req AddUserReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
 			return
 		}
 
-		result, err := db.CheckcanEditRoom(roomId, userId)
-		if err != nil {
-			http.Error(w, "check role err", http.StatusInternalServerError)
+		// permission check
+		result, err := db.CheckcanEditRoom(req.RoomID, ownerID)
+		if err != nil || !PermHelper(&result, w) {
 			return
 		}
 
-		if !PermHelper(&result, w) {
-			return
+		targetUserID := req.User
+		if strings.Contains(req.User, "@") {
+			uid, err := db.GetUserIDByEmail(req.User)
+			if err != nil || uid == "" {
+				http.Error(w, "user not found", http.StatusNotFound)
+				return
+			}
+			targetUserID = uid
 		}
 
-		db.JoinRoom(roomId, reqUserId, config.IntToRole(roleInt))
-
+		db.JoinRoom(req.RoomID, targetUserID, config.IntToRole(req.Role))
 		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func GetAllUserInRoom() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+
+		roomID := r.URL.Query().Get("roomId")
+		users, err := db.GetAllUserInRoom(roomID)
+		if err != nil {
+			http.Error(w, "cannot get users", 500)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(users)
+
 	}
 }

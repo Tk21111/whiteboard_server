@@ -81,6 +81,12 @@ func main() {
 	addUser := middleware.CORSMiddleware(middleware.RequireSession(api.OwnerAddUser()))
 	http.Handle("/add-user", addUser)
 
+	fs := http.FileServer(http.Dir("./web"))
+	http.Handle("/admin/", middleware.RequireSession(middleware.RequireRole(http.StripPrefix("/admin/", fs), 3)))
+
+	getAllUsers := middleware.RequireSession(middleware.RequireRole(api.GetAllUserInRoom(), 3))
+	http.Handle("/get-users", getAllUsers)
+
 	log.Println("WS running :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
