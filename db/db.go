@@ -20,6 +20,7 @@ const (
 	OpRoomCreate
 	OpRoomEditUser
 	OpUser
+	OpLayerCreate
 )
 
 type DbJob struct {
@@ -30,6 +31,7 @@ type DbJob struct {
 	RemoveRoomID string
 	Room         config.RoomEvent
 	User         config.UserEvent
+	Layer        config.LayerEvent
 }
 
 type Writer struct {
@@ -121,29 +123,40 @@ func NewWriter(dbPath string) {
 	}
 
 	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS areas (
-			room_id TEXT NOT NULL,
+		CREATE TABLE IF NOT EXISTS layers (
+		layer_index INTEGER NOT NULL,
+		room_id TEXT NOT NULL,
+		owner_id TEXT NOT NULL,
+		name TEXT NOT NULL DEFAULT "",
+		public INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL,
 
-			x INTEGER NOT NULL,
-			y INTEGER NOT NULL,
-			size INTEGER NOT NULL,
-
-			public INTEGER NOT NULL DEFAULT 0,
-			created_at INTEGER NOT NULL
-		);
+		PRIMARY KEY (room_id, layer_index)
+	);
     `)
 	if err != nil {
 		panic(err)
 	}
 
 	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS users_area (
-			x INTEGER NOT NULL,
-			y INTEGER NOT NULL,
-			user_id TEXT NOT NULL,
+		CREATE TABLE IF NOT EXISTS users_layers (
+		room_id TEXT NOT NULL,
+		layer_index INTEGER NOT NULL,
+		user_id TEXT NOT NULL,
 
-			PRIMARY KEY (user_id, x , y)
-		);
+		PRIMARY KEY (room_id, layer_index, user_id),
+		FOREIGN KEY (room_id, layer_index)
+			REFERENCES layers(room_id, layer_index)
+			ON DELETE CASCADE
+	);
+    `)
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_users_layers_user
+		ON users_layers(user_id);
     `)
 	if err != nil {
 		panic(err)
@@ -407,19 +420,18 @@ func (w *Writer) writerLoop() {
 				break
 			}
 
-			_, err = tx.Exec(
-				`INSERT INTO areas (
-					room_id,
-					x,
-					y,
-					size,
-					public,
-					created_at
-				) VALUES (?, ?, ?, ?, 1, ?)`,
+			_, err = tx.Exec(`
+					INSERT INTO layers (
+						room_id,
+						layer_index,
+						owner_id,
+						name,
+						public,
+						created_at
+					) VALUES (?, 0, ?, 'Base Layer', 1, ?)
+				`,
 				j.RoomID,
-				0,          // x = 0 (top-left origin)
-				0,          // y = 0
-				j.MainArea, // size from room config (even number)
+				j.UserID,
 				j.Now,
 			)
 			if err != nil {
@@ -454,8 +466,73 @@ func (w *Writer) writerLoop() {
 			if err != nil {
 				fmt.Printf("DB Error (Edit User): %v\n", err)
 			}
+		case OpLayerCreate:
+			j := job.Layer
+
+			tx, err := w.db.Begin()
+			if err != nil {
+				j.Result <- err
+				break
+			}
+
+			var nextLayer int
+			err = tx.QueryRow(`
+		SELECT COALESCE(MAX(layer_index), -1) + 1
+		FROM layers
+		WHERE room_id = ?
+	`, j.RoomID).Scan(&nextLayer)
+
+			if err != nil {
+				tx.Rollback()
+				j.Result <- err
+				break
+			}
+
+			_, err = tx.Exec(`
+		INSERT INTO layers (
+			room_id,
+			layer_index,
+			owner_id,
+			name,
+			public,
+			created_at
+		) VALUES (?, ?, ?, ?, ?, ?)
+	`,
+				j.RoomID,
+				nextLayer,
+				j.UserID,
+				j.Name,
+				j.Public,
+				j.Now,
+			)
+
+			if err != nil {
+				tx.Rollback()
+				j.Result <- err
+				break
+			}
+
+			// Owner always has access
+			_, err = tx.Exec(`
+		INSERT INTO users_layers (room_id, layer_index, user_id)
+		VALUES (?, ?, ?)
+	`,
+				j.RoomID,
+				nextLayer,
+				j.UserID,
+			)
+
+			if err != nil {
+				tx.Rollback()
+				j.Result <- err
+				break
+			}
+
+			err = tx.Commit()
+			j.Result <- err
 
 		}
+
 	}
 
 }
@@ -570,6 +647,28 @@ func CreateUser(
 	}
 
 	return nil
+}
+
+func CreateLayer(roomId, userId, name string, public int) error {
+	if W == nil {
+		return fmt.Errorf("writer not initialized")
+	}
+
+	result := make(chan error, 1)
+
+	W.opCh <- DbJob{
+		Type: OpLayerCreate,
+		Layer: config.LayerEvent{
+			RoomID: roomId,
+			UserID: userId,
+			Name:   name,
+			Public: public,
+			Now:    time.Now().UnixMilli(),
+			Result: result,
+		},
+	}
+
+	return <-result
 }
 
 // --- Read Methods (Unchanged, safe for concurrent read) ---
@@ -895,4 +994,29 @@ func GetAllAreaWithPerm(roomId string, userId string) ([]config.Area, error) {
 	}
 
 	return perms, nil
+}
+
+func CheckCanUseLayer(roomId string, layerIndex int64, userId string) (bool, error) {
+	var dummy int
+
+	err := W.db.QueryRow(`
+		SELECT 1
+		FROM layers l
+		LEFT JOIN users_layers ul
+			ON l.room_id = ul.room_id
+			AND l.layer_index = ul.layer_index
+			AND ul.user_id = ?
+		WHERE l.room_id = ?
+		  AND l.layer_index = ?
+		  AND (l.public = 1 OR ul.user_id IS NOT NULL)
+	`, userId, roomId, layerIndex).Scan(&dummy)
+
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
 }

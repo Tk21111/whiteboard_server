@@ -52,6 +52,7 @@ func HandleWS(w http.ResponseWriter, r *http.Request) {
 		profile: user.Picture,
 		color:   color,
 		role:    role,
+		layer:   0,
 	}
 
 	/* --------------------------------------------------
@@ -82,26 +83,6 @@ func HandleWS(w http.ResponseWriter, r *http.Request) {
 		data := middleware.EncodeNetworkMsg(msgs)
 		if data != nil {
 			client.send <- data
-		}
-	}
-
-	areas, err := db.GetAllAreaWithPerm(roomId, client.userId)
-	if err != nil {
-		log.Println("failed to load areas:", err)
-	} else {
-		msg := middleware.EncodeNetworkMsg([]config.ServerMsg{
-			{
-				Payload: config.NetworkMsg{
-					Operation: "area-sync",
-					ID:        client.userId,
-					Areas:     areas,
-				},
-				Clock: 0,
-			},
-		})
-
-		if msg != nil {
-			client.send <- msg
 		}
 	}
 

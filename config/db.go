@@ -50,3 +50,12 @@ type Area struct {
 	Y    int `json:"y"`
 	Size int `json:"size"`
 }
+
+type LayerEvent struct {
+	RoomID string
+	UserID string
+	Name   string
+	Public int
+	Now    int64
+	Result chan error
+}

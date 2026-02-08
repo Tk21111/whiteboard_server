@@ -16,6 +16,7 @@ type NetworkMsg struct {
 
 	ClientData *ClientData `json:"clientData,omitempty"`
 	Areas      []Area      `json:"areas,omitempty"`
+	Layer      Layer       `json:"layer,omitempty"`
 }
 
 type EventMeta struct {
@@ -65,4 +66,14 @@ type ClientData struct {
 	Name    string `json:"name"`
 	Color   string `json:"color"`
 	Profile string `json:"profile"`
+}
+
+type Layer struct {
+	RoomID string `json:"roomId,omitempty"`
+	Index  int64  `json:"index,omitempty"`
+	User   string `json:"user,omitempty"`
+
+	Name      string `json:"name,omitempty"`
+	Public    bool   `json:"public,omitempty"`
+	CreatedAt int64  `json:"createdAt,omitempty"`
 }

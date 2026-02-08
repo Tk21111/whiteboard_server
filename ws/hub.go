@@ -359,6 +359,58 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 			Payload: m,
 		}
 
+	case "change-layer":
+
+		targetLayer := m.Layer
+
+		ok, err := db.CheckCanUseLayer(
+			c.roomId,
+			targetLayer.Index,
+			c.userId,
+		)
+
+		if err != nil {
+			log.Println("layer check error:", err)
+			return nil
+		}
+
+		if !ok {
+			deny := middleware.EncodeNetworkMsg([]config.ServerMsg{
+				{
+					Payload: config.NetworkMsg{
+						Operation: "change-layer-denied",
+						Layer: config.Layer{
+							Index: c.layer,
+						},
+					},
+					Clock: 0,
+				},
+			})
+			if deny != nil {
+				c.send <- deny
+			}
+			return nil
+		}
+
+		c.layer = targetLayer.Index
+
+		ack := middleware.EncodeNetworkMsg([]config.ServerMsg{
+			{
+				Payload: config.NetworkMsg{
+					Operation: "change-layer-accept",
+					Layer: config.Layer{
+						Index: c.layer,
+					},
+				},
+				Clock: 0,
+			},
+		})
+
+		if ack != nil {
+			c.send <- ack
+		}
+		return nil
+
 	default:
 		return &config.ServerMsg{
 			Clock:   0,

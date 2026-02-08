@@ -115,6 +115,7 @@ func GetReplay() http.HandlerFunc {
 
 		roomID := r.URL.Query().Get("roomId")
 		from := r.URL.Query().Get("from")
+		layerIndex := r.URL.Query().Get("layerIndex")
 
 		if roomID == "" {
 			http.Error(w, "roomId required", http.StatusBadRequest)

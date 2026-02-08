@@ -12,15 +12,15 @@ import (
 )
 
 type Client struct {
-	conn    *websocket.Conn
-	send    chan []byte
-	roomId  string
-	userId  string
-	profile string
-	color   string
-	name    string
-	role    config.Role
-
+	conn      *websocket.Conn
+	send      chan []byte
+	roomId    string
+	userId    string
+	profile   string
+	color     string
+	name      string
+	role      config.Role
+	layer     int64
 	closeOnce sync.Once
 }
 
