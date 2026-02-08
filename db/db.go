@@ -66,7 +66,7 @@ func NewWriter(dbPath string) {
             entity_id TEXT NOT NULL,
             op TEXT NOT NULL,
             payload BLOB NOT NULL,
-			area TEXT NOT NULL DEFAULT "",
+			layer INTEGER NOT NULL ,
             created_at INTEGER NOT NULL
         );
     `)
@@ -94,9 +94,8 @@ func NewWriter(dbPath string) {
             rot REAL NOT NULL,
             w   REAL NOT NULL,
             h   REAL NOT NULL,
-    
+			layer INTEGET NOT NULL ,
 			payload TEXT NOT NULL DEFAULT "",
-			area TEXT NOT NULL DEFAULT "",
             is_removed INTEGER NOT NULL DEFAULT 0,
 
             created_at INTEGER NOT NULL,
@@ -113,8 +112,6 @@ func NewWriter(dbPath string) {
 			room_id TEXT PRIMARY KEY,
 			owner_id TEXT NOT NULL,
 			public INTEGER NOT NULL DEFAULT 1,
-			main_area INTEGER NOT NULL DEFAULT 2,
-			sub_area INTEGER NOT NULL DEFAULT 2,
 			created_at INTEGER NOT NULL
 		);
     `)
@@ -219,8 +216,8 @@ func (w *Writer) writerLoop() {
 	// 1. Prepare Event Statement
 	stmtEvent, err := w.db.Prepare(`
         INSERT INTO events
-        (id, room_id, user_id, entity_id, op, payload, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        (id, room_id, user_id, entity_id, op, payload, layer,  created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7 , $8)
     `)
 	if err != nil {
 		panic(err)
@@ -233,10 +230,10 @@ func (w *Writer) writerLoop() {
 		(
 			id, room_id, user_id, kind,
 			x, y, rot, w, h,
-			payload,
+			payload, layer ,
 			created_at, updated_at
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? , ?)
 	`)
 	if err != nil {
 		panic(err)
@@ -336,7 +333,7 @@ func (w *Writer) writerLoop() {
 			e := job.Event
 			_, err := stmtEvent.Exec(
 				e.ID, e.RoomID, e.UserID, e.EntityID,
-				e.Op, e.Payload, e.CreatedAt,
+				e.Op, e.Payload, e.LayerIndex, e.CreatedAt,
 			)
 			if err != nil {
 				fmt.Printf("DB Error (Event): %v\n", err)
@@ -348,7 +345,7 @@ func (w *Writer) writerLoop() {
 				d.ID, d.RoomID, d.UserID, d.Kind,
 				d.Transform.X, d.Transform.Y,
 				d.Transform.Rot, d.Transform.W, d.Transform.H,
-				d.Payload,
+				d.Payload, d.LayerIndex,
 				d.CreatedAt, d.UpdatedAt,
 			)
 			if err != nil {
@@ -673,16 +670,16 @@ func CreateLayer(roomId, userId, name string, public int) error {
 
 // --- Read Methods (Unchanged, safe for concurrent read) ---
 
-func GetEvent(roomID string, id string) ([]config.Event, error) {
+func GetEvent(roomID string, id string, layer int) ([]config.Event, error) {
 	// ... (Same as your original code)
 	// Need to include the body here if you want a complete file copy-paste
 	// I will assume you keep the original implementation here as it was correct.
 	rows, err := W.db.Query(`
         SELECT id, room_id, user_id, entity_id, op, payload, created_at
         FROM events
-        WHERE room_id = ? AND id > ? AND op = 'stroke-add'
+        WHERE room_id = ? AND id > ? AND op = 'stroke-add' AND layer = ?
         ORDER BY id ASC
-    `, roomID, id)
+    `, roomID, id, layer)
 	if err != nil {
 		return nil, err
 	}

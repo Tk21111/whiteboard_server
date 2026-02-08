@@ -20,19 +20,21 @@ type NetworkMsg struct {
 }
 
 type EventMeta struct {
-	ID     int64  `json:"id"`
-	RoomID string `json:"roomId"`
-	UserID string `json:"userId"`
+	ID         int64  `json:"id"`
+	RoomID     string `json:"roomId"`
+	UserID     string `json:"userId"`
+	LayerIndex int64  `json:"layer_index"`
 }
 
 type StrokeObjectInterface struct {
-	ID        string  `json:"id"`
-	Kind      string  `json:"kind"` // "stroke"
-	Color     string  `json:"color"`
-	Operation string  `json:"operation"` // draw / erase
-	Opacity   float64 `json:"opacity"`
-	Size      int64   `json:"size"`
-	Points    []Point `json:"points"`
+	ID         string  `json:"id"`
+	Kind       string  `json:"kind"` // "stroke"
+	Color      string  `json:"color"`
+	Operation  string  `json:"operation"` // draw / erase
+	Opacity    float64 `json:"opacity"`
+	Size       int64   `json:"size"`
+	Points     []Point `json:"points"`
+	LayerIndex int64   `json:"layer_index"`
 }
 
 type Point struct {
@@ -55,10 +57,11 @@ type Transform struct {
 }
 
 type DomObjectNetwork struct {
-	ID        string    `json:"id"`
-	Kind      string    `json:"kind"` // img, video, audio
-	Transform Transform `json:"transform"`
-	Payload   string    `json:"payload"`
+	ID         string    `json:"id"`
+	Kind       string    `json:"kind"` // img, video, audio
+	Transform  Transform `json:"transform"`
+	Payload    string    `json:"payload"`
+	LayerIndex int64     `json:"layer_index"`
 }
 
 type ClientData struct {

@@ -115,10 +115,15 @@ func GetReplay() http.HandlerFunc {
 
 		roomID := r.URL.Query().Get("roomId")
 		from := r.URL.Query().Get("from")
-		layerIndex := r.URL.Query().Get("layerIndex")
-
 		if roomID == "" {
 			http.Error(w, "roomId required", http.StatusBadRequest)
+			return
+		}
+
+		layerStr := r.URL.Query().Get("layerIndex")
+		layerIndex, err := strconv.ParseInt(layerStr, 10, 0)
+		if err != nil {
+			http.Error(w, "parse int fail", 500)
 			return
 		}
 
@@ -138,7 +143,7 @@ func GetReplay() http.HandlerFunc {
 			return
 		}
 
-		events, err := db.GetEvent(roomID, from)
+		events, err := db.GetEvent(roomID, from, int(layerIndex))
 		if err != nil {
 			http.Error(w, "fail to get event replay", 500)
 			return

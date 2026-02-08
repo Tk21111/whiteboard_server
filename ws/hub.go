@@ -162,15 +162,17 @@ var (
 
 func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 	meta := &config.EventMeta{
-		ID:     0, // assigned per event
-		RoomID: c.roomId,
-		UserID: c.userId,
+		ID:         0, // assigned per event
+		RoomID:     c.roomId,
+		UserID:     c.userId,
+		LayerIndex: c.layer,
 	}
 
 	switch m.Operation {
 
 	case "stroke-start":
 		meta.ID = NextClock(meta.RoomID)
+		m.Stroke.LayerIndex = c.layer
 		StrokeBuffer.Mu.Lock()
 		StrokeBuffer.Buffer[m.ID] = &bufferStruct{
 			Stroke: m.Stroke,
@@ -237,6 +239,7 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 	case "dom-add":
 
 		meta.ID = NextClock(meta.RoomID)
+		m.DomObject.LayerIndex = c.layer
 		db.WriteEvent(config.Event{
 			EventMeta: *meta,
 			Op:        "dom-add",
