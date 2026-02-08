@@ -30,7 +30,8 @@ func EnsureUserInRoom(roomId, userId string) (config.Role, error) {
 		}
 
 		if !exist {
-			if err := CreateRoom(roomId, userId, 1); err != nil {
+			fmt.Println("dadkandjkomkonm")
+			if err := CreateRoom(roomId, userId, 1, 4, 2); err != nil {
 				return -1, err
 			}
 		}

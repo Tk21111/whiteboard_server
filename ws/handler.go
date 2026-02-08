@@ -85,6 +85,26 @@ func HandleWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	areas, err := db.GetAllAreaWithPerm(roomId, client.userId)
+	if err != nil {
+		log.Println("failed to load areas:", err)
+	} else {
+		msg := middleware.EncodeNetworkMsg([]config.ServerMsg{
+			{
+				Payload: config.NetworkMsg{
+					Operation: "area-sync",
+					ID:        client.userId,
+					Areas:     areas,
+				},
+				Clock: 0,
+			},
+		})
+
+		if msg != nil {
+			client.send <- msg
+		}
+	}
+
 	/* --------------------------------------------------
 	   2. BROADCAST NEW CLIENT -> OTHERS
 	   -------------------------------------------------- */

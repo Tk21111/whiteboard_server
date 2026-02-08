@@ -105,25 +105,44 @@ func NewWriter(dbPath string) {
 		panic(err)
 	}
 
-	//tiles
-	_, err = db.Exec(`
-        CREATE TABLE IF NOT EXISTS tiles (
-            id INTEGER PRIMARY KEY,
-            room_id TEXT NOT NULL,
-            area TEXT NOT NULL
-        );
-    `)
-	if err != nil {
-		panic(err)
-	}
-
 	//room
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS rooms (
 			room_id TEXT PRIMARY KEY,
 			owner_id TEXT NOT NULL,
 			public INTEGER NOT NULL DEFAULT 1,
+			main_area INTEGER NOT NULL DEFAULT 2,
+			sub_area INTEGER NOT NULL DEFAULT 2,
 			created_at INTEGER NOT NULL
+		);
+    `)
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS areas (
+			room_id TEXT NOT NULL,
+
+			x INTEGER NOT NULL,
+			y INTEGER NOT NULL,
+			size INTEGER NOT NULL,
+
+			public INTEGER NOT NULL DEFAULT 0,
+			created_at INTEGER NOT NULL
+		);
+    `)
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS users_area (
+			x INTEGER NOT NULL,
+			y INTEGER NOT NULL,
+			user_id TEXT NOT NULL,
+
+			PRIMARY KEY (user_id, x , y)
 		);
     `)
 	if err != nil {
@@ -261,15 +280,6 @@ func (w *Writer) writerLoop() {
 	}
 	defer stmtRemove.Close()
 
-	stmtCreateRoom, err := w.db.Prepare(`
-		INSERT INTO rooms (room_id, owner_id, public, created_at)
-		VALUES (?, ?, 1, ?)
-	`)
-	if err != nil {
-		panic(err)
-	}
-	defer stmtCreateRoom.Close()
-
 	stmtEditRoom, err := w.db.Prepare(`
 		INSERT INTO users_rooms (user_id, room_id, role, joined_at)
 		VALUES (?, ?, ?, ?)
@@ -374,12 +384,14 @@ func (w *Writer) writerLoop() {
 			}
 
 			_, err = tx.Exec(
-				`INSERT INTO rooms (room_id, owner_id, public, created_at)
-		 		VALUES (?, ?, ?, ?)`,
-				j.RoomID, j.UserID, j.Public, j.Now,
+				`INSERT INTO rooms (room_id, owner_id, public, main_area ,sub_area , created_at)
+		 		VALUES (?, ?, ?, ?, ? , ? )`,
+				j.RoomID, j.UserID, j.Public, j.MainArea, j.SubArea, j.Now,
 			)
 			if err != nil {
 				tx.Rollback()
+				fmt.Println("room create")
+				fmt.Println(err)
 				j.Result <- err
 				break
 			}
@@ -388,6 +400,27 @@ func (w *Writer) writerLoop() {
 				`INSERT INTO users_rooms (user_id, room_id, role, joined_at)
 		 		VALUES (?, ?, 3, ?)`,
 				j.UserID, j.RoomID, j.Now,
+			)
+			if err != nil {
+				tx.Rollback()
+				j.Result <- err
+				break
+			}
+
+			_, err = tx.Exec(
+				`INSERT INTO areas (
+					room_id,
+					x,
+					y,
+					size,
+					public,
+					created_at
+				) VALUES (?, ?, ?, ?, 1, ?)`,
+				j.RoomID,
+				0,          // x = 0 (top-left origin)
+				0,          // y = 0
+				j.MainArea, // size from room config (even number)
+				j.Now,
 			)
 			if err != nil {
 				tx.Rollback()
@@ -465,7 +498,7 @@ func RemoveDom(id, roomId string) {
 }
 
 // crate and join
-func CreateRoom(roomId, userId string, public int8) error {
+func CreateRoom(roomId, userId string, public int8, mainArea int64, subArea int64) error {
 	if W == nil {
 		return fmt.Errorf("writer not initialized")
 	}
@@ -475,11 +508,13 @@ func CreateRoom(roomId, userId string, public int8) error {
 	W.opCh <- DbJob{
 		Type: OpRoomCreate,
 		Room: config.RoomEvent{
-			RoomID: roomId,
-			UserID: userId,
-			Public: public,
-			Now:    time.Now().UnixMilli(),
-			Result: result,
+			RoomID:   roomId,
+			UserID:   userId,
+			Public:   public,
+			MainArea: mainArea,
+			SubArea:  subArea,
+			Now:      time.Now().UnixMilli(),
+			Result:   result,
 		},
 	}
 
@@ -833,4 +868,31 @@ func GetAllUserInRoom(roomId string) ([]config.UserEvent, error) {
 	}
 
 	return users, nil
+}
+
+func GetAllAreaWithPerm(roomId string, userId string) ([]config.Area, error) {
+	var perms []config.Area
+
+	rows, err := W.db.Query(`
+        SELECT a.x, a.y, a.size
+        FROM areas a
+        LEFT JOIN users_area ua ON a.x = ua.x AND a.y = ua.y AND ua.user_id = ?
+        WHERE a.room_id = ? 
+        AND (a.public = 1 OR ua.user_id IS NOT NULL)
+    `, userId, roomId)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var p config.Area
+		if err := rows.Scan(&p.X, &p.Y, &p.Size); err != nil {
+			return nil, err
+		}
+		perms = append(perms, p)
+	}
+
+	return perms, nil
 }

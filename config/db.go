@@ -24,12 +24,14 @@ type DomEvent struct {
 }
 
 type RoomEvent struct {
-	RoomID string
-	UserID string
-	Now    int64
-	Public int8
-	Role   Role
-	Result chan error
+	RoomID   string
+	UserID   string
+	Now      int64
+	Public   int8
+	Role     Role
+	MainArea int64
+	SubArea  int64
+	Result   chan error
 }
 
 type UserEvent struct {
@@ -41,4 +43,10 @@ type UserEvent struct {
 	Email     string
 
 	Created_at int64
+}
+
+type Area struct {
+	X    int `json:"x"`
+	Y    int `json:"y"`
+	Size int `json:"size"`
 }

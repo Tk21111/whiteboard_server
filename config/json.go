@@ -15,6 +15,7 @@ type NetworkMsg struct {
 	Pos       *Pos              `json:"pos,omitempty"`
 
 	ClientData *ClientData `json:"clientData,omitempty"`
+	Areas      []Area      `json:"areas,omitempty"`
 }
 
 type EventMeta struct {
