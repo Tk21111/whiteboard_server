@@ -52,10 +52,11 @@ type Area struct {
 }
 
 type LayerEvent struct {
-	RoomID string
-	UserID string
-	Name   string
-	Public int
-	Now    int64
-	Result chan error
+	RoomID     string
+	UserID     string
+	Name       string
+	Public     int
+	Now        int64
+	Result     chan error
+	LayerIndex chan int64
 }

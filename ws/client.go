@@ -33,6 +33,8 @@ func (c *Client) read() {
 			break
 		}
 
+		// fmt.Println("📥 RAW MESSAGE:", string(raw))
+
 		msgs, err := middleware.DecodeNetworkMsg(raw)
 		if err != nil {
 			continue

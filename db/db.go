@@ -472,7 +472,7 @@ func (w *Writer) writerLoop() {
 				break
 			}
 
-			var nextLayer int
+			var nextLayer int64 // ← Change to int64
 			err = tx.QueryRow(`
 		SELECT COALESCE(MAX(layer_index), -1) + 1
 		FROM layers
@@ -528,8 +528,10 @@ func (w *Writer) writerLoop() {
 			err = tx.Commit()
 			j.Result <- err
 
+			if err == nil {
+				j.LayerIndex <- nextLayer // ← Send back the created layer index
+			}
 		}
-
 	}
 
 }
@@ -646,26 +648,33 @@ func CreateUser(
 	return nil
 }
 
-func CreateLayer(roomId, userId, name string, public int) error {
+func CreateLayer(roomId, userId, name string, public int) (int64, error) {
 	if W == nil {
-		return fmt.Errorf("writer not initialized")
+		return -1, fmt.Errorf("writer not initialized")
 	}
 
 	result := make(chan error, 1)
+	layerIndex := make(chan int64, 1) // ← Add channel for layer index
 
 	W.opCh <- DbJob{
 		Type: OpLayerCreate,
 		Layer: config.LayerEvent{
-			RoomID: roomId,
-			UserID: userId,
-			Name:   name,
-			Public: public,
-			Now:    time.Now().UnixMilli(),
-			Result: result,
+			RoomID:     roomId,
+			UserID:     userId,
+			Name:       name,
+			Public:     public,
+			Now:        time.Now().UnixMilli(),
+			Result:     result,
+			LayerIndex: layerIndex, // ← Pass the channel
 		},
 	}
 
-	return <-result
+	err := <-result
+	if err != nil {
+		return -1, err
+	}
+
+	return <-layerIndex, nil // ← Return the created layer index
 }
 
 // --- Read Methods (Unchanged, safe for concurrent read) ---
@@ -1016,4 +1025,25 @@ func CheckCanUseLayer(roomId string, layerIndex int64, userId string) (bool, err
 	}
 
 	return true, nil
+}
+
+func GetLayerByUserId(userId string, roomId string) (int64, error) {
+	var layerIndex int64
+
+	err := W.db.QueryRow(`
+		SELECT layer_index
+		FROM users_layers
+		WHERE room_id = ?
+		  AND user_id = ?
+		LIMIT 1
+	`, roomId, userId, userId).Scan(&layerIndex)
+
+	if err == sql.ErrNoRows {
+		return -1, nil // User doesn't have a private layer yet
+	}
+	if err != nil {
+		return -1, err
+	}
+
+	return layerIndex, nil
 }
