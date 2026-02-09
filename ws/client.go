@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Tk21111/whiteboard_server/config"
@@ -12,15 +13,17 @@ import (
 )
 
 type Client struct {
-	conn      *websocket.Conn
-	send      chan []byte
-	roomId    string
-	userId    string
-	profile   string
-	color     string
-	name      string
-	role      config.Role
-	layer     int64
+	conn    *websocket.Conn
+	send    chan []byte
+	roomId  string
+	userId  string
+	profile string
+	color   string
+	name    string
+	role    config.Role
+
+	layer atomic.Int64
+
 	closeOnce sync.Once
 }
 

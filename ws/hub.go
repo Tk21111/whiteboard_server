@@ -73,14 +73,14 @@ func (h *Hub) Leave(roomID string, c *Client) {
 	}
 
 	var unlockedIDs []string
-	domLocks.mu.Lock()
+	domLocks.Mu.Lock()
 	for id, ownerID := range domLocks.buffer {
 		if ownerID == c.userId {
 			unlockedIDs = append(unlockedIDs, id)
 			delete(domLocks.buffer, id)
 		}
 	}
-	domLocks.mu.Unlock()
+	domLocks.Mu.Unlock()
 
 	// 2. Broadcast the unlock events to the room
 	var msgs []config.ServerMsg
@@ -147,7 +147,7 @@ type StrokeBufferStruct struct {
 
 type DomLock struct {
 	buffer map[string]string
-	mu     sync.Mutex
+	Mu     sync.Mutex
 }
 
 var (
@@ -165,14 +165,14 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 		ID:         0, // assigned per event
 		RoomID:     c.roomId,
 		UserID:     c.userId,
-		LayerIndex: c.layer,
+		LayerIndex: c.layer.Load(),
 	}
 
 	switch m.Operation {
 
 	case "stroke-start":
 		meta.ID = NextClock(meta.RoomID)
-		m.Stroke.LayerIndex = c.layer
+		m.Stroke.LayerIndex = c.layer.Load()
 		StrokeBuffer.Mu.Lock()
 		StrokeBuffer.Buffer[m.ID] = &bufferStruct{
 			Stroke: m.Stroke,
@@ -239,7 +239,7 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 	case "dom-add":
 
 		meta.ID = NextClock(meta.RoomID)
-		m.DomObject.LayerIndex = c.layer
+		m.DomObject.LayerIndex = c.layer.Load()
 		db.WriteEvent(config.Event{
 			EventMeta: *meta,
 			Op:        "dom-add",
@@ -265,8 +265,8 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 			Payload: m,
 		}
 	case "dom-lock":
-		domLocks.mu.Lock()
-		defer domLocks.mu.Unlock()
+		domLocks.Mu.Lock()
+		defer domLocks.Mu.Unlock()
 
 		currentOwner, exists := domLocks.buffer[m.ID]
 		// If someone else has it, deny the lock
@@ -280,18 +280,18 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 		return &config.ServerMsg{Clock: 0, Payload: m}
 
 	case "dom-unlock":
-		domLocks.mu.Lock()
+		domLocks.Mu.Lock()
 		if domLocks.buffer[m.ID] == c.userId {
 			delete(domLocks.buffer, m.ID)
 		}
-		domLocks.mu.Unlock()
+		domLocks.Mu.Unlock()
 		return &config.ServerMsg{Clock: 0, Payload: m}
 
 	case "dom-transform":
 
-		domLocks.mu.Lock()
+		domLocks.Mu.Lock()
 		ownerID, exists := domLocks.buffer[m.ID]
-		domLocks.mu.Unlock()
+		domLocks.Mu.Unlock()
 
 		// If locked by someone else, return empty struct
 		if exists && ownerID != c.userId {
@@ -366,7 +366,7 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 		targetLayer := m.Layer
 
 		// --- Case 1: User wants a specific existing layer (public or shared) ---
-		if m.Layer.Index != -1 {
+		if m.Layer.Index >= 0 {
 			ok, err := db.CheckCanUseLayer(
 				c.roomId,
 				targetLayer.Index,
@@ -382,7 +382,7 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 						Payload: config.NetworkMsg{
 							Operation: "change-layer-denied",
 							Layer: config.Layer{
-								Index: c.layer,
+								Index: c.layer.Load(),
 							},
 						},
 						Clock: 0,
@@ -395,44 +395,21 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 			}
 
 			// Permission granted, switch to this layer
-			c.layer = targetLayer.Index
-			ack := middleware.EncodeNetworkMsg([]config.ServerMsg{
-				{
-					Payload: config.NetworkMsg{
-						Operation: "change-layer-accept",
-						Layer: config.Layer{
-							Index: c.layer,
-						},
-					},
-					Clock: 0,
-				},
-			})
-			if ack != nil {
-				c.send <- ack
-			}
+			c.layer.Store(targetLayer.Index)
+			c.sendReplay()
 			return nil
 		}
 
 		existingIndex, err := db.GetLayerByUserId(c.userId, c.roomId)
 		if err != nil {
 			log.Println("GetLayerByUserId error:", err)
+			return nil
 			// Don't deny, try to create instead
-		} else if existingIndex > 0 {
-			fmt.Println(existingIndex)
-			ack := middleware.EncodeNetworkMsg([]config.ServerMsg{
-				{
-					Payload: config.NetworkMsg{
-						Operation: "change-layer-accept",
-						Layer: config.Layer{
-							Index: c.layer, // ← This is correct, sends back the new index
-						},
-					},
-					Clock: 0,
-				},
-			})
-			if ack != nil {
-				c.send <- ack
-			}
+		}
+
+		if existingIndex >= 0 {
+			c.layer.Store(existingIndex)
+			c.sendReplay()
 			return nil
 		}
 
@@ -445,7 +422,7 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 					Payload: config.NetworkMsg{
 						Operation: "change-layer-denied",
 						Layer: config.Layer{
-							Index: c.layer,
+							Index: c.layer.Load(),
 						},
 					},
 					Clock: 0,
@@ -457,25 +434,41 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 			return nil
 		}
 
-		c.layer = newIndex
-		ack := middleware.EncodeNetworkMsg([]config.ServerMsg{
-			{
-				Payload: config.NetworkMsg{
-					Operation: "change-layer-accept",
-					Layer: config.Layer{
-						Index: c.layer, // ← This is correct, sends back the new index
-					},
-				},
-				Clock: 0,
-			},
-		})
-		if ack != nil {
-			c.send <- ack
-		}
+		c.layer.Store(newIndex)
+		c.sendReplay()
+
 		return nil
 
 	default:
 		return nil
+	}
+}
+
+func (c *Client) sendReplay() {
+	ack := middleware.EncodeNetworkMsg([]config.ServerMsg{
+		{
+			Payload: config.NetworkMsg{
+				Operation: "change-layer-accept",
+				Layer: config.Layer{
+					Index: c.layer.Load(),
+				},
+			},
+			Clock: 0,
+		},
+	})
+	if ack != nil {
+		c.send <- ack
+	}
+
+	//send replay
+	replay, err := GetReplay(c.userId, c.roomId, c.layer.Load(), "0")
+	if err != nil {
+		fmt.Println("fail to get replay")
+		return
+	}
+	data := middleware.EncodeNetworkMsg(replay)
+	if data != nil {
+		c.send <- data
 	}
 }
 

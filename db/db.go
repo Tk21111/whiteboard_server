@@ -394,9 +394,9 @@ func (w *Writer) writerLoop() {
 			}
 
 			_, err = tx.Exec(
-				`INSERT INTO rooms (room_id, owner_id, public, main_area ,sub_area , created_at)
-		 		VALUES (?, ?, ?, ?, ? , ? )`,
-				j.RoomID, j.UserID, j.Public, j.MainArea, j.SubArea, j.Now,
+				`INSERT INTO rooms (room_id, owner_id, public , created_at)
+		 		VALUES (?, ?, ?, ?)`,
+				j.RoomID, j.UserID, j.Public, j.Now,
 			)
 			if err != nil {
 				tx.Rollback()
@@ -584,13 +584,11 @@ func CreateRoom(roomId, userId string, public int8, mainArea int64, subArea int6
 	W.opCh <- DbJob{
 		Type: OpRoomCreate,
 		Room: config.RoomEvent{
-			RoomID:   roomId,
-			UserID:   userId,
-			Public:   public,
-			MainArea: mainArea,
-			SubArea:  subArea,
-			Now:      time.Now().UnixMilli(),
-			Result:   result,
+			RoomID: roomId,
+			UserID: userId,
+			Public: public,
+			Now:    time.Now().UnixMilli(),
+			Result: result,
 		},
 	}
 
@@ -709,15 +707,16 @@ func GetEvent(roomID string, id string, layer int) ([]config.Event, error) {
 	return events, nil
 }
 
-func GetActiveDomObjects(roomID string) ([]config.DomObjectNetwork, error) {
+func GetActiveDomObjects(roomID string, layer int64) ([]config.DomObjectNetwork, error) {
 	// ... (Same as your original code)
 	rows, err := W.db.Query(`
         SELECT
-            id, kind, x, y, rot, w, h , payload
+            id, kind, x, y, rot, w, h , payload , layer
         FROM dom_objects
         WHERE room_id = ?
         AND is_removed = 0
-    `, roomID)
+		AND layer = ?
+    `, roomID, layer)
 	if err != nil {
 		return nil, err
 	}
@@ -731,7 +730,7 @@ func GetActiveDomObjects(roomID string) ([]config.DomObjectNetwork, error) {
 
 		err := rows.Scan(
 			&dom.ID, &dom.Kind,
-			&t.X, &t.Y, &t.Rot, &t.W, &t.H, &dom.Payload,
+			&t.X, &t.Y, &t.Rot, &t.W, &t.H, &dom.Payload, &dom.LayerIndex,
 		)
 		if err != nil {
 			return nil, err

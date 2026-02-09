@@ -1,8 +1,11 @@
 package ws
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
+	"sync/atomic"
 
 	"github.com/Tk21111/whiteboard_server/auth"
 	"github.com/Tk21111/whiteboard_server/config"
@@ -52,8 +55,10 @@ func HandleWS(w http.ResponseWriter, r *http.Request) {
 		profile: user.Picture,
 		color:   color,
 		role:    role,
-		layer:   0,
+		layer:   atomic.Int64{},
 	}
+
+	client.layer.Store(0)
 
 	/* --------------------------------------------------
 	   1. SEND EXISTING CLIENTS -> NEW CLIENT
@@ -86,6 +91,15 @@ func HandleWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	replay, err := GetReplay(client.userId, client.roomId, client.layer.Load(), "0")
+	if err != nil {
+		return
+	}
+	data := middleware.EncodeNetworkMsg(replay)
+	if data != nil {
+		client.send <- data
+	}
+
 	/* --------------------------------------------------
 	   2. BROADCAST NEW CLIENT -> OTHERS
 	   -------------------------------------------------- */
@@ -113,18 +127,101 @@ func HandleWS(w http.ResponseWriter, r *http.Request) {
 
 	H.Broadcast(roomId, selfJoin, nil)
 
-	/* --------------------------------------------------
-	   3. JOIN ROOM
-	   -------------------------------------------------- */
-
 	H.Join(roomId, client)
-
 	log.Println("join room", roomId, "user", client.userId)
-
-	/* --------------------------------------------------
-	   4. START IO
-	   -------------------------------------------------- */
 
 	go client.write()
 	client.read()
+}
+
+func GetReplay(userID string, roomID string, layerIndex int64, from string) ([]config.ServerMsg, error) {
+	replay := make([]config.ServerMsg, 0) // Changed from 1 to 0
+
+	_, err := db.EnsureUserInRoom(roomID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if from == "" {
+		from = "0"
+	}
+
+	events, err := db.GetEvent(roomID, from, int(layerIndex))
+	if err != nil {
+		return nil, err
+	}
+
+	for _, e := range events {
+		payload := config.NetworkMsg{
+			ID:        strconv.FormatInt(e.ID, 10),
+			Operation: e.Op,
+		}
+
+		switch e.Op {
+		case "stroke-add":
+			var decoded config.StrokeObjectInterface
+			if err := json.Unmarshal(e.Payload, &decoded); err != nil {
+				continue
+			}
+			payload.Stroke = &decoded
+		}
+
+		replay = append(replay, config.ServerMsg{
+			Clock:   e.ID,
+			Payload: payload,
+		})
+	}
+
+	doms, err := db.GetActiveDomObjects(roomID, layerIndex)
+	if err != nil {
+		return replay, err
+	}
+
+	for _, d := range doms {
+		replay = append(replay, config.ServerMsg{
+			Clock: 0,
+			Payload: config.NetworkMsg{
+				ID:        d.ID,
+				Operation: "dom-add",
+				DomObject: &d,
+			},
+		})
+	}
+
+	StrokeBuffer.Mu.Lock()
+	defer StrokeBuffer.Mu.Unlock()
+
+	for _, d := range StrokeBuffer.Buffer {
+		if d.Meta.RoomID != roomID || d.Stroke.LayerIndex != layerIndex {
+			continue
+		}
+
+		replay = append(replay, config.ServerMsg{
+			Clock: 0,
+			Payload: config.NetworkMsg{
+				ID:        d.Stroke.ID,
+				Operation: "stroke-start",
+				Stroke:    d.Stroke,
+			},
+		})
+	}
+
+	domLocks.Mu.Lock()
+	defer domLocks.Mu.Unlock()
+
+	for d, userId := range domLocks.buffer {
+		replay = append(replay, config.ServerMsg{
+			Clock: 0,
+			Payload: config.NetworkMsg{
+				ID:        d,
+				Operation: "dom-lock",
+				DomObject: &config.DomObjectNetwork{
+					ID:     d,
+					UserId: userId,
+				},
+			},
+		})
+	}
+
+	return replay, nil
 }
