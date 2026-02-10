@@ -7,7 +7,6 @@ import (
 	"github.com/Tk21111/whiteboard_server/auth"
 	"github.com/Tk21111/whiteboard_server/config"
 	"github.com/Tk21111/whiteboard_server/db"
-	"github.com/Tk21111/whiteboard_server/session"
 )
 
 func AuthMiddleware(next http.Handler) http.Handler {
@@ -48,6 +47,7 @@ func CORSMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Vary", "Origin")
 		}
 
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
@@ -70,15 +70,28 @@ func RequireSession(next http.Handler) http.Handler {
 			return
 		}
 
-		userID, ok := session.Get(cookie.Value)
-		if !ok {
+		claims, err := auth.ParseJWT(cookie.Value)
+		if err != nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), config.ContextUserIDKey, userID)
+		ctx := context.WithValue(
+			r.Context(),
+			config.ContextUserIDKey,
+			claims.UserID,
+		)
+
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// Helper to avoid logging secrets
+func short(s string) string {
+	if len(s) <= 6 {
+		return s
+	}
+	return s[:6] + "..."
 }
 
 func RequireRole(next http.Handler, reqRole int) http.Handler {

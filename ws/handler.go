@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -28,6 +29,7 @@ func HandleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, err := auth.VerifyIDToken(token)
+	fmt.Println(user)
 	if err != nil {
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return

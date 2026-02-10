@@ -5,28 +5,35 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/Tk21111/whiteboard_server/api"
 	"github.com/Tk21111/whiteboard_server/auth"
 	"github.com/Tk21111/whiteboard_server/db"
 	"github.com/Tk21111/whiteboard_server/middleware"
 	"github.com/Tk21111/whiteboard_server/ws"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+
 	"github.com/joho/godotenv"
 )
 
 func main() {
+	// --------------------------------------------------
+	// ENV (local dev OK, Fly ignores if missing)
+	// --------------------------------------------------
+	_ = godotenv.Load(".env")
 
-	err := godotenv.Load(".env")
-	if err != nil {
-		log.Fatal("Error loading .env file")
-		return
-	}
-
-	cfg, err := config.LoadDefaultConfig(context.TODO(),
+	// --------------------------------------------------
+	// AWS R2 / S3 CONFIG
+	// --------------------------------------------------
+	cfg, err := config.LoadDefaultConfig(
+		context.Background(),
 		config.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider(
 				os.Getenv("R2_KEY"),
@@ -37,60 +44,139 @@ func main() {
 		config.WithRegion("auto"),
 	)
 	if err != nil {
-		panic(err)
+		log.Fatal("failed to load aws config:", err)
 	}
 
-	db.NewWriter("./db/sql/events.db")
-
-	go ws.StartStrokeTTLGC()
-
-	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(os.Getenv("R2_ENDPOINT"))
 	})
+	presignClient := s3.NewPresignClient(s3Client)
 
-	http.HandleFunc("/start-test", startTestHandler)
+	// --------------------------------------------------
+	// DB / BACKGROUND JOBS
+	// --------------------------------------------------
+	err = os.MkdirAll("./db/sql", 0755)
+	if err != nil {
+		log.Fatal("failed to create db directory:", err)
+	}
+	db.NewWriter("./db/sql/events.db")
+	go ws.StartStrokeTTLGC()
 
-	presignClient := s3.NewPresignClient(client)
-	http.HandleFunc("/ws", ws.HandleWS)
+	// --------------------------------------------------
+	// ROUTES
+	// --------------------------------------------------
+	mux := http.NewServeMux()
 
-	cookieHandler := middleware.CORSMiddleware(auth.HandleAuthAsset())
-	http.Handle("/cookie", cookieHandler)
+	// --- testing
+	mux.HandleFunc("/start-test", startTestHandler)
 
-	replayHandler := middleware.CORSMiddleware(middleware.RequireSession(api.GetReplay()))
-	http.Handle("/get-replay", replayHandler)
+	// --- websocket
+	mux.HandleFunc("/ws", ws.HandleWS)
 
-	validToken := middleware.CORSMiddleware(auth.HandleValidate())
-	http.Handle("/check-valid", validToken)
+	// --- auth / cookies
+	mux.Handle("/cookie",
+		middleware.CORSMiddleware(auth.HandleAuthAsset()),
+	)
 
-	uploadHandler :=
+	mux.Handle("/check-valid",
+		middleware.CORSMiddleware(auth.HandleValidate()),
+	)
+
+	// --- replay
+	mux.Handle("/get-replay",
+		middleware.CORSMiddleware(
+			middleware.RequireSession(api.GetReplay()),
+		),
+	)
+
+	// --- upload
+	mux.Handle("/upload",
 		middleware.CORSMiddleware(
 			middleware.AuthMiddleware(
 				api.UploadHandler(presignClient),
 			),
-		)
-	http.Handle("/upload", uploadHandler)
+		),
+	)
 
-	getHandler :=
+	// --- get object
+	mux.Handle("/get",
 		middleware.CORSMiddleware(
 			middleware.RequireSession(
 				api.GetObject(presignClient),
 			),
-		)
-	http.Handle("/get", getHandler)
+		),
+	)
 
-	addUser := middleware.CORSMiddleware(middleware.RequireSession(api.OwnerAddUser()))
-	http.Handle("/add-user", addUser)
+	// --- room admin
+	mux.Handle("/add-user",
+		middleware.CORSMiddleware(
+			middleware.RequireSession(api.OwnerAddUser()),
+		),
+	)
 
-	fs := http.FileServer(http.Dir("./web"))
-	http.Handle("/admin/", middleware.RequireSession(middleware.RequireRole(http.StripPrefix("/admin/", fs), 3)))
+	mux.Handle("/get-users",
+		middleware.RequireSession(
+			middleware.RequireRole(api.GetAllUserInRoom(), 3),
+		),
+	)
 
-	getAllUsers := middleware.RequireSession(middleware.RequireRole(api.GetAllUserInRoom(), 3))
-	http.Handle("/get-users", getAllUsers)
+	// --- admin panel
+	adminFS := http.FileServer(http.Dir("./web"))
+	mux.Handle(
+		"/admin/",
+		middleware.RequireSession(
+			middleware.RequireRole(
+				http.StripPrefix("/admin/", adminFS),
+				3,
+			),
+		),
+	)
 
-	log.Println("WS running :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	// --------------------------------------------------
+	// SERVER (Fly.io compatible)
+	// --------------------------------------------------
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	handler := middleware.CORSMiddleware(mux)
+	addr := "0.0.0.0:" + port
+	server := &http.Server{
+		Addr:    addr,
+		Handler: handler,
+	}
+
+	log.Println("🚀 Whiteboard server running on", addr)
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal("server error:", err)
+		}
+	}()
+
+	// --------------------------------------------------
+	// GRACEFUL SHUTDOWN (Fly sends SIGTERM)
+	// --------------------------------------------------
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("🛑 shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		log.Println("shutdown error:", err)
+	}
+
+	log.Println("✅ server stopped cleanly")
 }
 
+// --------------------------------------------------
+// LOAD TEST
+// --------------------------------------------------
 func startTestHandler(w http.ResponseWriter, r *http.Request) {
 	roomID := r.URL.Query().Get("roomId")
 	if roomID == "" {

@@ -115,14 +115,26 @@ func (h *Hub) Leave(roomID string, c *Client) {
 func (h *Hub) Broadcast(roomID string, msg []byte, except *Client) {
 	h.mu.Lock()
 	room, ok := h.rooms[roomID]
-	defer h.mu.Unlock()
+	h.mu.Unlock()
 
 	if !ok {
 		return
 	}
 
 	for c := range room.clients {
-		if c != except {
+
+		// If except is nil → broadcast to everyone
+		if except == nil {
+			select {
+			case c.send <- msg:
+			default:
+				delete(room.clients, c)
+			}
+			continue
+		}
+
+		// Normal case: exclude sender + same layer only
+		if c != except && c.layer.Load() == except.layer.Load() {
 			select {
 			case c.send <- msg:
 			default:

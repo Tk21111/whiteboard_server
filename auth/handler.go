@@ -6,7 +6,6 @@ import (
 
 	"github.com/Tk21111/whiteboard_server/config"
 	"github.com/Tk21111/whiteboard_server/db"
-	"github.com/Tk21111/whiteboard_server/session"
 )
 
 func HandleAuthAsset() http.HandlerFunc {
@@ -24,15 +23,15 @@ func HandleAuthAsset() http.HandlerFunc {
 			return
 		}
 
-		sessionToken, err := session.Create(user.UserID)
+		jwtToken, err := CreateJWT(user.UserID)
 		if err != nil {
-			http.Error(w, "fail to create seesion", http.StatusInternalServerError)
+			http.Error(w, "auth error", http.StatusInternalServerError)
 			return
 		}
 
 		http.SetCookie(w, &http.Cookie{
 			Name:     "assetCookie",
-			Value:    sessionToken,
+			Value:    jwtToken,
 			Path:     "/",
 			HttpOnly: true,
 			Secure:   false,
