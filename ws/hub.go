@@ -389,13 +389,12 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 				return nil
 			}
 			if !ok {
+				fmt.Println("can not view")
 				deny := middleware.EncodeNetworkMsg([]config.ServerMsg{
 					{
 						Payload: config.NetworkMsg{
 							Operation: "change-layer-denied",
-							Layer: config.Layer{
-								Index: c.layer.Load(),
-							},
+							Layer:     config.Layer{},
 						},
 						Clock: 0,
 					},
