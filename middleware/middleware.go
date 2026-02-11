@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/Tk21111/whiteboard_server/auth"
@@ -19,7 +20,9 @@ func AuthMiddleware(next http.Handler) http.Handler {
 
 		user, err := auth.VerifyIDToken(token)
 		if err != nil {
+			fmt.Println(err)
 			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
 		}
 
 		ctx := r.Context()

@@ -389,7 +389,6 @@ func (w *Writer) writerLoop() {
 
 			tx, err := w.db.Begin()
 			if err != nil {
-				j.Result <- err
 				break
 			}
 
@@ -402,7 +401,6 @@ func (w *Writer) writerLoop() {
 				tx.Rollback()
 				fmt.Println("room create")
 				fmt.Println(err)
-				j.Result <- err
 				break
 			}
 
@@ -413,7 +411,6 @@ func (w *Writer) writerLoop() {
 			)
 			if err != nil {
 				tx.Rollback()
-				j.Result <- err
 				break
 			}
 
@@ -433,12 +430,10 @@ func (w *Writer) writerLoop() {
 			)
 			if err != nil {
 				tx.Rollback()
-				j.Result <- err
 				break
 			}
 
 			err = tx.Commit()
-			j.Result <- err
 		case OpRoomEditUser:
 			j := job.Room
 			_, err := stmtEditRoom.Exec(
@@ -579,8 +574,6 @@ func CreateRoom(roomId, userId string, public int8, mainArea int64, subArea int6
 		return fmt.Errorf("writer not initialized")
 	}
 
-	result := make(chan error, 1)
-
 	W.opCh <- DbJob{
 		Type: OpRoomCreate,
 		Room: config.RoomEvent{
@@ -588,11 +581,10 @@ func CreateRoom(roomId, userId string, public int8, mainArea int64, subArea int6
 			UserID: userId,
 			Public: public,
 			Now:    time.Now().UnixMilli(),
-			Result: result,
 		},
 	}
 
-	return <-result
+	return nil
 }
 
 func JoinRoom(roomId, userId string, role config.Role) error {
@@ -1045,4 +1037,28 @@ func GetLayerByUserId(userId string, roomId string) (int64, error) {
 	}
 
 	return layerIndex, nil
+}
+func GetAllRooms(userId string) ([]config.RoomEvent, error) {
+	rows, err := W.db.Query(`
+		SELECT r.room_id, r.owner_id, r.public
+		FROM rooms r
+		LEFT JOIN users_rooms ur ON r.room_id = ur.room_id AND ur.user_id = ?
+		WHERE r.public = 1 OR r.owner_id = ? OR ur.user_id IS NOT NULL
+		ORDER BY r.created_at DESC
+	`, userId, userId)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var rooms []config.RoomEvent
+	for rows.Next() {
+		var r config.RoomEvent
+		if err := rows.Scan(&r.RoomID, &r.UserID, &r.Public); err != nil {
+			return nil, err
+		}
+		rooms = append(rooms, r)
+	}
+	return rooms, nil
 }

@@ -186,3 +186,25 @@ func GetAllUserInRoom() http.HandlerFunc {
 
 	}
 }
+
+func GetAllBoardsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := r.Context().Value(config.ContextUserIDKey).(string)
+		if !ok {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		rooms, err := db.GetAllRooms(userID)
+		if err != nil {
+			fmt.Printf("Error fetching rooms: %v\n", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(rooms); err != nil {
+			http.Error(w, "Encoding error", http.StatusInternalServerError)
+		}
+	}
+}

@@ -101,6 +101,10 @@ func main() {
 		),
 	)
 
+	mux.Handle("/get-rooms", middleware.AuthMiddleware(
+		api.GetAllBoardsHandler(),
+	))
+
 	// --- room admin
 	mux.Handle("/add-user",
 		middleware.RequireSession(api.OwnerAddUser()),
