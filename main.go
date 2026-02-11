@@ -55,11 +55,11 @@ func main() {
 	// --------------------------------------------------
 	// DB / BACKGROUND JOBS
 	// --------------------------------------------------
-	err = os.MkdirAll("./db/sql", 0755)
+	err = os.MkdirAll("./data", 0755)
 	if err != nil {
 		log.Fatal("failed to create db directory:", err)
 	}
-	db.NewWriter("./db/sql/events.db")
+	db.NewWriter("./data/events.db")
 	go ws.StartStrokeTTLGC()
 
 	// --------------------------------------------------
