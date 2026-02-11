@@ -19,6 +19,8 @@ func HandleAuthAsset() http.HandlerFunc {
 
 		user, err := VerifyIDToken(token)
 		if err != nil {
+			fmt.Println("invalid token")
+			fmt.Println(err)
 			http.Error(w, "invalid token", http.StatusForbidden)
 			return
 		}
@@ -34,8 +36,8 @@ func HandleAuthAsset() http.HandlerFunc {
 			Value:    jwtToken,
 			Path:     "/",
 			HttpOnly: true,
-			Secure:   false,
-			SameSite: http.SameSiteLaxMode,
+			Secure:   true,
+			SameSite: http.SameSiteNoneMode,
 			MaxAge:   60 * 60 * 24 * 7,
 		})
 

@@ -75,43 +75,35 @@ func main() {
 
 	// --- auth / cookies
 	mux.Handle("/cookie",
-		middleware.CORSMiddleware(auth.HandleAuthAsset()),
+		auth.HandleAuthAsset(),
 	)
 
 	mux.Handle("/check-valid",
-		middleware.CORSMiddleware(auth.HandleValidate()),
+		auth.HandleValidate(),
 	)
 
 	// --- replay
 	mux.Handle("/get-replay",
-		middleware.CORSMiddleware(
-			middleware.RequireSession(api.GetReplay()),
-		),
+		middleware.RequireSession(api.GetReplay()),
 	)
 
 	// --- upload
 	mux.Handle("/upload",
-		middleware.CORSMiddleware(
-			middleware.AuthMiddleware(
-				api.UploadHandler(presignClient),
-			),
+		middleware.AuthMiddleware(
+			api.UploadHandler(presignClient),
 		),
 	)
 
 	// --- get object
 	mux.Handle("/get",
-		middleware.CORSMiddleware(
-			middleware.RequireSession(
-				api.GetObject(presignClient),
-			),
+		middleware.RequireSession(
+			api.GetObject(presignClient),
 		),
 	)
 
 	// --- room admin
 	mux.Handle("/add-user",
-		middleware.CORSMiddleware(
-			middleware.RequireSession(api.OwnerAddUser()),
-		),
+		middleware.RequireSession(api.OwnerAddUser()),
 	)
 
 	mux.Handle("/get-users",

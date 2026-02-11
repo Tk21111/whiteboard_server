@@ -36,6 +36,7 @@ var allowedOrigins = map[string]bool{
 	"http://127.0.0.1:5173":                                    true,
 	"http://192.168.1.105:5173":                                true,
 	"https://noctambulous-logan-multicircuited.ngrok-free.dev": true,
+	"https://whiteboard.printhelloworld.xyz":                   true,
 }
 
 func CORSMiddleware(next http.Handler) http.Handler {
@@ -66,13 +67,13 @@ func RequireSession(next http.Handler) http.Handler {
 
 		cookie, err := r.Cookie("assetCookie")
 		if err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			http.Error(w, "no cookie", http.StatusUnauthorized)
 			return
 		}
 
 		claims, err := auth.ParseJWT(cookie.Value)
 		if err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			http.Error(w, "parse jwt fail", http.StatusUnauthorized)
 			return
 		}
 

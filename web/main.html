@@ -1,98 +1,53 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>Room Admin</title>
-<style>
-  body {
-    background: #0f1117;
-    color: #e5e7eb;
-    font-family: system-ui, monospace;
-    padding: 24px;
-  }
-  h2 {
-    margin-top: 32px;
-    font-size: 16px;
-    color: #9ca3af;
-  }
-  input, button {
-    background: #1f2937;
-    color: #e5e7eb;
-    border: 1px solid #374151;
-    padding: 8px;
-    margin: 4px 0;
-  }
-  button {
-    cursor: pointer;
-  }
-  pre {
-    background: #020617;
-    padding: 12px;
-    border: 1px solid #1e293b;
-    margin-top: 12px;
-  }
-</style>
+  <meta charset="UTF-8">
+  <title>Whiteboard Server</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #0f172a;
+      color: white;
+      font-family: Arial, sans-serif;
+    }
+
+    .container {
+      text-align: center;
+    }
+
+    h1 {
+      font-size: 3rem;
+      margin-bottom: 10px;
+    }
+
+    p {
+      font-size: 1.2rem;
+      opacity: 0.8;
+    }
+
+    .status {
+      margin-top: 20px;
+      padding: 10px 20px;
+      background: #22c55e;
+      border-radius: 20px;
+      display: inline-block;
+      font-weight: bold;
+    }
+  </style>
 </head>
 <body>
 
-<h1>Room Admin</h1>
-
-<h2>Create Room</h2>
-<input id="roomId" placeholder="room id">
-<button onclick="createRoom()">Create</button>
-
-<h2>Add User to Room</h2>
-<input id="addRoomId" placeholder="room id">
-<input id="userInput" placeholder="userId or email">
-<input id="role" placeholder="role (0-3)">
-<button onclick="addUser()">Add</button>
-
-<h2>Room Users</h2>
-<input id="viewRoomId" placeholder="room id">
-<button onclick="loadUsers()">Load</button>
-
-<pre id="output"></pre>
-
-<script>
-const out = document.getElementById("output")
-
-async function createRoom() {
-  const roomId = document.getElementById("roomId").value
-  const res = await fetch("/api/create-room", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ roomId })
-  })
-  out.textContent = await res.text()
-}
-
-async function addUser() {
-  const roomId = document.getElementById("addRoomId").value
-  const user   = document.getElementById("userInput").value
-  const role   = Number(document.getElementById("role").value)
-
-  const res = await fetch("/add-user", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      roomId,
-      user,   // email or userId
-      role,
-    }),
-  })
-
-  out.textContent = await res.text()
-}
-
-
-async function loadUsers() {
-  const roomId = document.getElementById("viewRoomId").value
-  const res = await fetch(`/get-users?roomId=${roomId}`)
-  out.textContent = JSON.stringify(await res.json(), null, 2)
-}
-</script>
+  <div class="container">
+    <h1>Whiteboard Server</h1>
+    <p>WebSocket Endpoint Ready</p>
+    <div class="status">ONLINE</div>
+  </div>
 
 </body>
 </html>
