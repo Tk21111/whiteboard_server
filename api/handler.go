@@ -61,11 +61,9 @@ func UploadHandler(client *s3.PresignClient) http.HandlerFunc {
 		objectKey := fmt.Sprintf("rooms/%s/%s-%d", req.RoomId, userId, time.Now().UnixNano())
 
 		presignedReq, err := client.PresignPutObject(r.Context(), &s3.PutObjectInput{
-			Bucket:             aws.String(os.Getenv("R2_BUCKET")),
-			Key:                aws.String(objectKey),
-			ContentType:        aws.String(req.MimeType),
-			CacheControl:       aws.String("private, max-age=0"),
-			ContentDisposition: aws.String("inline"),
+			Bucket:       aws.String(os.Getenv("R2_BUCKET")),
+			Key:          aws.String(objectKey),
+			CacheControl: aws.String("public, max-age=31536000, immutable"),
 		}, func(po *s3.PresignOptions) {
 			po.Expires = 15 * time.Minute
 		})

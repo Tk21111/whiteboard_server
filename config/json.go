@@ -16,7 +16,7 @@ type NetworkMsg struct {
 
 	ClientData *ClientData `json:"clientData,omitempty"`
 	Areas      []Area      `json:"areas,omitempty"`
-	Layer      Layer       `json:"layer,omitempty"`
+	Layer      *Layer      `json:"layer,omitempty"`
 }
 
 type EventMeta struct {
@@ -74,7 +74,7 @@ type ClientData struct {
 
 type Layer struct {
 	RoomID string `json:"roomId,omitempty"`
-	Index  int64  `json:"index,omitempty"`
+	Index  int64  `json:"index"`
 	User   string `json:"user,omitempty"`
 
 	Name      string `json:"name,omitempty"`

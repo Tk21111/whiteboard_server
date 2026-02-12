@@ -394,7 +394,7 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 					{
 						Payload: config.NetworkMsg{
 							Operation: "change-layer-denied",
-							Layer:     config.Layer{},
+							Layer:     &config.Layer{},
 						},
 						Clock: 0,
 					},
@@ -432,7 +432,7 @@ func (c *Client) handleMsg(m config.NetworkMsg) *config.ServerMsg {
 				{
 					Payload: config.NetworkMsg{
 						Operation: "change-layer-denied",
-						Layer: config.Layer{
+						Layer: &config.Layer{
 							Index: c.layer.Load(),
 						},
 					},
@@ -460,7 +460,7 @@ func (c *Client) sendReplay() {
 		{
 			Payload: config.NetworkMsg{
 				Operation: "change-layer-accept",
-				Layer: config.Layer{
+				Layer: &config.Layer{
 					Index: c.layer.Load(),
 				},
 			},
@@ -468,6 +468,7 @@ func (c *Client) sendReplay() {
 		},
 	})
 	if ack != nil {
+		//check here
 		c.send <- ack
 	}
 
